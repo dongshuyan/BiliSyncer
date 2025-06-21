@@ -16,7 +16,7 @@ from utils.fetcher import Fetcher
 from utils.logger import Logger
 from utils.csv_manager import CSVManager
 from extractors import extract_video_list
-from api.bilibili import get_ugc_video_list
+from api.bilibili import get_ugc_video_list, get_bangumi_episode_info
 
 
 class BatchDownloader:
@@ -175,32 +175,27 @@ class BatchDownloader:
                 if video.get('status') == 'unavailable':
                     Logger.warning(f"[{i}/{len(videos)}] 跳过不可访问视频: {video['name']}")
                     # 直接标记为已下载，避免重复尝试
-                    video_url = video['avid'].to_url()
+                    video_url = self._get_video_url(video)
                     if self.csv_manager:
                         self.csv_manager.mark_video_downloaded(video_url)
                     Logger.info(f"[{i}/{len(videos)}] 已标记不可访问视频为已处理: {video['name']}")
                     continue
                 
+                # 关键步骤：如果视频状态为pending，先获取详细信息
+                if video.get("status") == "pending":
+                    await self._fetch_video_details(video)
+                
                 # 步骤7关键逻辑: 检查视频文件夹是否存在，如果存在就删除重新下载
                 await self._cleanup_existing_video_folder(video)
                 
-                # 构建yutto命令
-                video_url = video['avid'].to_url()
+                # 调用单视频下载方法
                 if not self.csv_manager:
                     Logger.error("CSV管理器未初始化")
                     continue
-                    
-                output_dir = self.csv_manager.task_dir
-                
-                yutto_cmd = ["yutto", video_url, "-d", str(output_dir)]
-                if self.sessdata:
-                    yutto_cmd.extend(["-c", self.sessdata])
-                yutto_cmd.extend(self.extra_args)
-                
-                # 调用之前的单视频下载方法
-                await self._download_single_video(video, self.task_id, output_dir)
+                await self._download_single_video(video, self.task_id, self.csv_manager.task_dir)
                 
                 # 更新CSV文件中的下载状态
+                video_url = self._get_video_url(video)
                 if self.csv_manager:
                     self.csv_manager.mark_video_downloaded(video_url)
                     
@@ -220,6 +215,101 @@ class BatchDownloader:
         if self.csv_manager:
             stats = self.csv_manager.get_download_stats()
             Logger.custom(f"下载完成 - 成功: {stats['downloaded']}, 总计: {stats['total']}", "批量下载")
+    
+    def _get_video_url(self, video: VideoInfo) -> str:
+        """获取视频URL"""
+        if "episode_id" in video:
+            # 番剧视频使用特殊格式
+            return f"bangumi://ep{video['episode_id']}"
+        else:
+            # 普通视频使用avid
+            return video['avid'].to_url()
+    
+    async def _fetch_video_details(self, video: VideoInfo) -> None:
+        """获取视频的详细信息"""
+        avid = video["avid"]
+        Logger.info(f"获取视频 {avid} 的详细信息...")
+        
+        try:
+            # 使用正确的异步上下文管理器语法
+            async with Fetcher(sessdata=self.sessdata) as fetcher:
+                # 判断是否为番剧视频
+                episode_id = video.get("episode_id")
+                if episode_id:
+                    # 番剧视频，使用episode_id获取详细信息
+                    Logger.info(f"获取番剧剧集 {episode_id} 的详细信息...")
+                    episode_info = await get_bangumi_episode_info(fetcher, episode_id)
+                    
+                    # 更新视频信息
+                    video.update({
+                        "avid": episode_info["avid"],
+                        "cid": episode_info["cid"],
+                        "title": episode_info["title"],
+                        "name": episode_info["name"],
+                        "author": episode_info["author"],
+                        "duration": episode_info["duration"],
+                        "path": Path(str(video["path"]).split("/")[0]) / episode_info["name"],  # 保持番剧文件夹名+正确剧集名
+                        "status": "ready"
+                    })
+                    
+                    # 立即更新CSV文件中的详细信息
+                    video_url = self._get_video_url(video)
+                    if self.csv_manager:
+                        self.csv_manager.update_video_info(video_url, {
+                            "title": episode_info["title"],
+                            "name": episode_info["name"],
+                            "cid": str(episode_info["cid"]),
+                            "download_path": str(video["path"]),
+                            "status": "ready"
+                        })
+                    
+                    Logger.info(f"已获取并保存番剧剧集 {episode_id} 的详细信息: {episode_info['name']}")
+                else:
+                    # 投稿视频，使用原有逻辑
+                    detailed_video_data = await get_ugc_video_list(fetcher, avid)
+                    
+                    # 更新视频信息
+                    if detailed_video_data and detailed_video_data.get("videos"):
+                        detailed_video = detailed_video_data["videos"][0]
+                        # 更新详细信息
+                        video.update({
+                            "cid": detailed_video["cid"],
+                            "title": detailed_video["title"],
+                            "name": detailed_video["name"],
+                            "path": detailed_video["path"],
+                            "status": "ready"
+                        })
+                        
+                        # 立即更新CSV文件中的详细信息
+                        video_url = self._get_video_url(video)
+                        if self.csv_manager:
+                            self.csv_manager.update_video_info(video_url, {
+                                "title": detailed_video["title"],
+                                "name": detailed_video["name"],
+                                "cid": str(detailed_video["cid"]),
+                                "download_path": str(detailed_video["path"]),
+                                "status": "ready"
+                            })
+                        
+                        Logger.info(f"已获取并保存视频 {avid} 的详细信息")
+                    else:
+                        raise Exception("无法获取视频详细信息")
+                        
+        except Exception as e:
+            error_msg = str(e)
+            Logger.error(f"获取视频 {avid} 详细信息失败: {e}")
+            
+            # 检查是否为永久性错误
+            permanent_errors = ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]
+            if any(keyword in error_msg for keyword in permanent_errors):
+                Logger.warning(f"视频 {avid} 不可访问，标记为已处理")
+                video["status"] = "unavailable"
+                video_url = self._get_video_url(video)
+                if self.csv_manager:
+                    self.csv_manager.mark_video_downloaded(video_url)
+            else:
+                Logger.warning(f"视频 {avid} 获取失败，跳过此次下载")
+                raise  # 重新抛出异常，让上层处理
     
     async def _cleanup_existing_video_folder(self, video: VideoInfo) -> None:
         """清理已存在的视频文件夹和文件"""
@@ -306,7 +396,7 @@ class BatchDownloader:
     async def _download_single_video(self, video, task_id, output_dir):
         """下载单个视频"""
         avid = video["avid"]
-        video_url = avid.to_url()
+        video_url = self._get_video_url(video)
         
         # 检查是否需要停止
         if self._should_stop():
@@ -328,50 +418,6 @@ class BatchDownloader:
             Logger.info(f"视频 {avid} 已下载，跳过")
             return True
         
-        # 如果状态为pending，需要获取详细信息
-        if video.get("status") == "pending":
-            Logger.info(f"获取视频 {avid} 的详细信息...")
-            try:
-                # 使用正确的异步上下文管理器语法
-                async with Fetcher(sessdata=self.sessdata) as fetcher:
-                    detailed_video_data = await get_ugc_video_list(fetcher, avid)
-                    
-                    # 更新视频信息
-                    if detailed_video_data and detailed_video_data.get("videos"):
-                        detailed_video = detailed_video_data["videos"][0]
-                        # 更新详细信息
-                        video.update({
-                            "cid": detailed_video["cid"],
-                            "path": detailed_video["path"],
-                            "status": "ready"
-                        })
-                        
-                        # 立即更新CSV文件中的详细信息
-                        self.csv_manager.update_video_info(video_url, {
-                            "cid": str(detailed_video["cid"]),
-                            "download_path": str(detailed_video["path"]),
-                            "status": "ready"
-                        })
-                        
-                        Logger.info(f"已获取并保存视频 {avid} 的详细信息")
-                    else:
-                        raise Exception("无法获取视频详细信息")
-                        
-            except Exception as e:
-                error_msg = str(e)
-                Logger.error(f"获取视频 {avid} 详细信息失败: {e}")
-                
-                # 检查是否为永久性错误
-                permanent_errors = ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]
-                if any(keyword in error_msg for keyword in permanent_errors):
-                    Logger.warning(f"视频 {avid} 不可访问，标记为已处理")
-                    video["status"] = "unavailable"
-                    self.csv_manager.mark_video_downloaded(video_url)
-                    return True
-                else:
-                    Logger.warning(f"视频 {avid} 获取失败，跳过此次下载")
-                    return False
-        
         # 如果是不可访问的视频，跳过
         if video.get("status") == "unavailable":
             Logger.info(f"视频 {avid} 不可访问，跳过")
@@ -389,8 +435,9 @@ class BatchDownloader:
         # 构建yutto命令
         yutto_cmd = ["yutto"]
         
-        # 视频URL
-        yutto_cmd.append(video_url)
+        # 视频URL - 番剧视频需要使用实际的avid
+        actual_video_url = video['avid'].to_url()
+        yutto_cmd.append(actual_video_url)
         
         # 输出目录 - 使用视频标题创建子目录
         video_output_dir = output_dir / self._sanitize_filename(video['title'])
@@ -459,9 +506,7 @@ class BatchDownloader:
             if return_code != 0:
                 raise Exception(f"yutto下载失败，返回码: {return_code}")
             
-            # 下载成功，标记为已下载
-            self.csv_manager.mark_video_downloaded(video_url)
-            Logger.info(f"视频 {avid} 下载完成并已更新状态")
+            Logger.info(f"视频 {avid} 下载完成")
             return True
                 
         except Exception as e:
@@ -474,36 +519,57 @@ class BatchDownloader:
     
     def _csv_to_video_info(self, csv_data: Dict[str, str]) -> VideoInfo:
         """将CSV数据转换为VideoInfo"""
-        # 根据avid类型创建对应的AvId对象
-        avid_str = csv_data['avid']
-        if avid_str.startswith('BV') or avid_str.startswith('bv'):
-            avid = BvId(avid_str)
-        else:
-            avid = AId(avid_str)
+        video_url = csv_data['video_url']
         
-        # 处理pubdate字段 - 可能是Unix时间戳或可读格式
-        pubdate_str = csv_data.get('pubdate', '0')
-        if pubdate_str == '未知' or not pubdate_str:
-            pubdate = 0
-        elif pubdate_str.isdigit():
-            # 如果是纯数字，说明是Unix时间戳
-            pubdate = int(pubdate_str)
+        # 处理不同类型的视频
+        if video_url.startswith('bangumi://ep'):
+            # 番剧视频，使用episode_id
+            episode_id = csv_data['avid']  # 在番剧中，avid字段存储的是episode_id
+            video_info = {
+                'id': 1,
+                'name': csv_data['name'],
+                'title': csv_data['title'],
+                'avid': BvId("BV1"),  # 占位符，下载时会更新
+                'cid': CId(csv_data['cid']),
+                'path': Path(csv_data['download_path']),
+                'pubdate': 0,  # 番剧没有pubdate
+                'status': csv_data.get('status', 'pending'),
+                'episode_id': episode_id  # 保存episode_id用于获取详细信息
+            }
         else:
-            # 如果是日期字符串，尝试解析为Unix时间戳
-            try:
-                from datetime import datetime
-                dt = datetime.strptime(pubdate_str, '%Y-%m-%d %H:%M:%S')
-                pubdate = int(dt.timestamp())
-            except ValueError:
-                Logger.warning(f"无法解析pubdate: {pubdate_str}")
+            # 普通投稿视频
+            avid_str = csv_data['avid']
+            if avid_str.startswith('BV') or avid_str.startswith('bv'):
+                avid = BvId(avid_str)
+            else:
+                avid = AId(avid_str)
+            
+            # 处理pubdate字段 - 可能是Unix时间戳或可读格式
+            pubdate_str = csv_data.get('pubdate', '0')
+            if pubdate_str == '未知' or not pubdate_str:
                 pubdate = 0
+            elif pubdate_str.isdigit():
+                # 如果是纯数字，说明是Unix时间戳
+                pubdate = int(pubdate_str)
+            else:
+                # 如果是日期字符串，尝试解析为Unix时间戳
+                try:
+                    from datetime import datetime
+                    dt = datetime.strptime(pubdate_str, '%Y-%m-%d %H:%M:%S')
+                    pubdate = int(dt.timestamp())
+                except ValueError:
+                    Logger.warning(f"无法解析pubdate: {pubdate_str}")
+                    pubdate = 0
+            
+            video_info = {
+                'id': 1,  # 默认id
+                'name': csv_data['name'],
+                'title': csv_data['title'],
+                'avid': avid,
+                'cid': CId(csv_data['cid']),
+                'path': Path(csv_data['download_path']),
+                'pubdate': pubdate,
+                'status': csv_data.get('status', 'pending')
+            }
         
-        return {
-            'id': 1,  # 默认id
-            'name': csv_data['name'],
-            'title': csv_data['title'],
-            'avid': avid,
-            'cid': CId(csv_data['cid']),
-            'path': Path(csv_data['download_path']),
-            'pubdate': pubdate
-        } 
+        return video_info  # type: ignore 

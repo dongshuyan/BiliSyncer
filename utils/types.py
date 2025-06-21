@@ -2,7 +2,7 @@
 类型定义
 """
 
-from typing import TypedDict, NamedTuple, Union
+from typing import TypedDict, NamedTuple, Union, Optional
 from pathlib import Path
 
 
@@ -108,6 +108,10 @@ class VideoInfo(TypedDict):
     title: str
     path: Path
     pubdate: int  # 发布时间（Unix时间戳）
+    status: Optional[str]  # 视频状态：pending（待处理）、ready（已就绪）、unavailable（不可访问）
+    episode_id: Optional[str]  # 番剧剧集ID（仅番剧视频）
+    author: Optional[str]  # 作者
+    duration: Optional[int]  # 时长
 
 
 class VideoListData(TypedDict):

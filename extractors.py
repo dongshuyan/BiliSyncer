@@ -12,7 +12,8 @@ from utils.fetcher import Fetcher
 from api.bilibili import (
     get_favourite_avids, get_favourite_info, get_user_space_videos,
     get_series_videos, get_watch_later_avids, get_bangumi_list,
-    get_season_id_by_media_id, get_season_id_by_episode_id
+    get_season_id_by_media_id, get_season_id_by_episode_id, get_user_name,
+    get_ugc_video_list, get_bangumi_episode_list, get_bangumi_episode_info
 )
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
@@ -93,26 +94,27 @@ class BangumiExtractor(URLExtractor):
         season_id = await self._parse_season_id(fetcher, url)
         Logger.info(f"提取番剧: {season_id}")
         
-        # 获取番剧信息和剧集列表
-        bangumi_data = await get_bangumi_list(fetcher, season_id)
+        # 获取番剧标题和剧集ID列表（仅获取ID，不获取详细信息）
+        bangumi_title, episode_ids = await get_bangumi_episode_list(fetcher, season_id)
         
         videos = []
-        for page in bangumi_data["pages"]:
-            # 创建Video对象
+        for i, episode_id in enumerate(episode_ids):
+            # 创建占位符视频条目，下载时再获取详细信息
             video = {
-                "avid": page["avid"],
-                "cid": page["cid"],
-                "title": page["title"],
-                "name": page["name"],
-                "pubdate": page["pubdate"],
-                "author": page["author"],
-                "duration": page["duration"],
-                "path": Path(f"{bangumi_data['title']}/{page['name']}"),
-                "status": "ready"  # 番剧信息已完整，无需pending
+                "avid": BvId("BV1"),  # 占位符，下载时再获取
+                "cid": CId("0"),  # 占位符，下载时再获取
+                "title": "",  # 空标题，下载时再获取
+                "name": "",   # 空名称，下载时再获取
+                "pubdate": 0, # 番剧没有pubdate概念
+                "author": "", # 空作者，下载时再获取
+                "duration": 0, # 空时长，下载时再获取
+                "path": Path(f"{bangumi_title}/第{i+1}话"),  # 临时路径，下载时会更新
+                "status": "pending",  # 标记为待处理，需要下载时再获取详细信息
+                "episode_id": episode_id  # 保存episode_id用于后续获取详细信息
             }
             videos.append(video)
         
-        return {"title": bangumi_data["title"], "videos": videos}
+        return {"title": bangumi_title, "videos": videos}
     
     async def _parse_season_id(self, fetcher: Fetcher, url: str) -> str:
         """根据URL类型获取season_id"""
@@ -147,21 +149,20 @@ class FavouriteExtractor(URLExtractor):
         Logger.info(f"提取收藏夹: {fid}")
         
         fav_info = await get_favourite_info(fetcher, fid)
-        videos_info = await get_favourite_avids(fetcher, fid)
+        avids = await get_favourite_avids(fetcher, fid)
         
         videos = []
-        for video_info in videos_info:
-            # 直接使用API返回的基本信息创建视频条目
+        for avid in avids:
+            # 创建占位符视频条目，稍后按需获取详细信息
             video = {
-                "id": 1,
-                "name": video_info["title"],
-                "avid": video_info["avid"],
-                "cid": CId("0"),  # 暂时使用占位符，下载时再获取
-                "title": video_info["title"],
-                "pubdate": video_info["pubdate"],
-                "author": video_info["author"],
-                "duration": video_info["duration"],
-                "path": Path(f"收藏夹-{fav_info['title']}/{video_info['avid']}_{video_info['title']}"),
+                "avid": avid,
+                "cid": CId("0"),  # 占位符
+                "title": "",  # 空标题，稍后获取
+                "name": "",   # 空名称，稍后获取
+                "pubdate": 0, # 空发布时间，稍后获取
+                "author": "", # 空作者，稍后获取
+                "duration": 0, # 空时长，稍后获取
+                "path": Path(f"收藏夹-{fav_info['title']}/{avid}"),
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)
@@ -190,21 +191,20 @@ class SeriesExtractor(URLExtractor):
         
         Logger.info(f"提取{'视频列表' if list_type == 'series' else '视频合集'}: {series_id}")
         
-        videos_info = await get_series_videos(fetcher, series_id, mid)
+        avids = await get_series_videos(fetcher, series_id, mid)
         
         videos = []
-        for video_info in videos_info:
-            # 直接使用API返回的基本信息创建视频条目
+        for avid in avids:
+            # 创建占位符视频条目，稍后按需获取详细信息
             video = {
-                "id": 1,
-                "name": video_info["title"],
-                "avid": video_info["avid"],
-                "cid": CId("0"),  # 暂时使用占位符，下载时再获取
-                "title": video_info["title"],
-                "pubdate": video_info["pubdate"],
-                "author": video_info["author"],
-                "duration": video_info["duration"],
-                "path": Path(f"{'视频列表' if list_type == 'series' else '视频合集'}-{series_id}/{video_info['avid']}_{video_info['title']}"),
+                "avid": avid,
+                "cid": CId("0"),  # 占位符
+                "title": "",  # 空标题，稍后获取
+                "name": "",   # 空名称，稍后获取
+                "pubdate": 0, # 空发布时间，稍后获取
+                "author": "", # 空作者，稍后获取
+                "duration": 0, # 空时长，稍后获取
+                "path": Path(f"{'视频列表' if list_type == 'series' else '视频合集'}-{series_id}/{avid}"),
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)
@@ -231,26 +231,27 @@ class UserSpaceExtractor(URLExtractor):
         mid = MId(match_obj.group("mid"))
         Logger.info(f"提取用户空间: {mid}")
         
-        videos_info = await get_user_space_videos(fetcher, mid)
+        # 获取用户名和视频列表（仅ID）
+        username = await get_user_name(fetcher, mid)
+        avids = await get_user_space_videos(fetcher, mid)
         
         videos = []
-        for video_info in videos_info:
-            # 直接使用API返回的基本信息创建视频条目
+        for avid in avids:
+            # 创建占位符视频条目，稍后按需获取详细信息
             video = {
-                "id": 1,
-                "name": video_info["title"],
-                "avid": video_info["avid"],
-                "cid": CId("0"),  # 暂时使用占位符，下载时再获取
-                "title": video_info["title"],
-                "pubdate": video_info["pubdate"],
-                "author": video_info["author"],
-                "duration": video_info["duration"],
-                "path": Path(f"用户-{mid}/{video_info['avid']}_{video_info['title']}"),
+                "avid": avid,
+                "cid": CId("0"),  # 占位符，下载时再获取
+                "title": "",  # 空标题，稍后获取
+                "name": "",   # 空名称，稍后获取
+                "pubdate": 0, # 空发布时间，稍后获取
+                "author": username, # 使用获取到的用户名
+                "duration": 0, # 空时长，稍后获取
+                "path": Path(f"用户-{mid}-{username}/{avid}"),
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)
         
-        return {"title": f"用户-{mid}", "videos": videos}
+        return {"title": f"用户-{mid}-{username}", "videos": videos}
 
 
 class WatchLaterExtractor(URLExtractor):
@@ -266,21 +267,20 @@ class WatchLaterExtractor(URLExtractor):
         """提取稍后再看列表"""
         Logger.info("提取稍后再看列表")
         
-        videos_info = await get_watch_later_avids(fetcher)
+        avids = await get_watch_later_avids(fetcher)
         
         videos = []
-        for video_info in videos_info:
-            # 直接使用API返回的基本信息创建视频条目
+        for avid in avids:
+            # 创建占位符视频条目，稍后按需获取详细信息
             video = {
-                "id": 1,
-                "name": video_info["title"],
-                "avid": video_info["avid"],
-                "cid": CId("0"),  # 暂时使用占位符，下载时再获取
-                "title": video_info["title"],
-                "pubdate": video_info["pubdate"],
-                "author": video_info["author"],
-                "duration": video_info["duration"],
-                "path": Path(f"稍后再看/{video_info['avid']}_{video_info['title']}"),
+                "avid": avid,
+                "cid": CId("0"),  # 占位符
+                "title": "",  # 空标题，稍后获取
+                "name": "",   # 空名称，稍后获取
+                "pubdate": 0, # 空发布时间，稍后获取
+                "author": "", # 空作者，稍后获取
+                "duration": 0, # 空时长，稍后获取
+                "path": Path(f"稍后再看/{avid}"),
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)

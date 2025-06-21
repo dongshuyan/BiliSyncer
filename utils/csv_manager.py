@@ -96,15 +96,25 @@ class CSVManager:
                     if str(cid_value) == "0":
                         cid_value = ""
                     
+                    # 处理video_url - 番剧视频使用特殊格式
+                    if "episode_id" in video:
+                        # 番剧视频使用episode_id作为唯一标识
+                        video_url = f"bangumi://ep{video['episode_id']}"
+                        avid_str = video.get('episode_id', '')
+                    else:
+                        # 普通视频使用avid
+                        video_url = video['avid'].to_url()
+                        avid_str = str(video['avid'])
+                    
                     # 对于不可访问的视频，直接标记为已下载
                     is_unavailable = video.get('status') == 'unavailable'
                     writer.writerow({
-                        'video_url': video['avid'].to_url(),
+                        'video_url': video_url,
                         'title': video['title'],
                         'name': video['name'],
                         'download_path': str(video['path']),
                         'downloaded': 'True' if is_unavailable else 'False',
-                        'avid': str(video['avid']),
+                        'avid': avid_str,
                         'cid': str(cid_value),
                         'pubdate': pubdate_str,
                         'status': video.get('status', 'normal')
@@ -168,6 +178,16 @@ class CSVManager:
                     if str(cid_value) == "0":
                         cid_value = ""
                     
+                    # 处理video_url - 番剧视频使用特殊格式
+                    if "episode_id" in video:
+                        # 番剧视频使用episode_id作为唯一标识
+                        video_url = f"bangumi://ep{video['episode_id']}"
+                        avid_str = video.get('episode_id', '')
+                    else:
+                        # 普通视频使用avid
+                        video_url = video['avid'].to_url()
+                        avid_str = str(video['avid'])
+                    
                     # 对于不可访问的视频，直接标记为已下载
                     is_unavailable = video.get('status') == 'unavailable'
                     merged_videos.append({
@@ -176,7 +196,7 @@ class CSVManager:
                         'name': video['name'],
                         'download_path': str(video['path']),
                         'downloaded': 'True' if is_unavailable else 'False',
-                        'avid': str(video['avid']),
+                        'avid': avid_str,
                         'cid': str(cid_value),
                         'pubdate': pubdate_str,
                         'status': video.get('status', 'normal')
