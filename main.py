@@ -39,12 +39,14 @@ Yutto-Batch - 精简版B站批量下载工具
     --config NAME       使用指定的配置文件 (不含.yaml扩展名)
     --update            更新模式：扫描输出目录下所有任务并检查更新
     --vip-strict        启用严格VIP模式（传递给yutto）
+    --save-cover        保存视频封面（传递给yutto）
     
 示例:
     python main.py "https://www.bilibili.com/video/BV1xx411c7mD"
     python main.py "https://space.bilibili.com/123456/favlist?fid=789012" -o ./my_downloads
     python main.py --update -c "cookie" -o "/path/to/downloads"
     python main.py "https://www.bilibili.com/video/BV1xx411c7mD" --vip-strict
+    python main.py "https://www.bilibili.com/video/BV1xx411c7mD" --save-cover
     python main.py "https://www.bilibili.com/video/BV1xx411c7mD" --config vip
 """
     print(help_text)
@@ -92,6 +94,8 @@ def parse_args():
         # 添加配置文件中的选项
         if config_data.get('vip_strict', False):
             extra_args.append('--vip-strict')
+        if config_data.get('save_cover', False):
+            extra_args.append('--save-cover')
         if config_data.get('debug', False):
             extra_args.append('--debug')
         
@@ -109,6 +113,10 @@ def parse_args():
                 # 将vip-strict参数传递给yutto
                 extra_args.append('--vip-strict')
                 i += 1
+            elif args[i] == '--save-cover':
+                # 将save-cover参数传递给yutto
+                extra_args.append('--save-cover')
+                i += 1
             else:
                 # 未识别的参数传递给yutto
                 extra_args.append(args[i])
@@ -123,6 +131,8 @@ def parse_args():
         # 添加配置文件中的选项
         if config_data.get('vip_strict', False):
             extra_args.append('--vip-strict')
+        if config_data.get('save_cover', False):
+            extra_args.append('--save-cover')
         if config_data.get('debug', False):
             extra_args.append('--debug')
         
@@ -137,6 +147,10 @@ def parse_args():
             elif args[i] == '--vip-strict':
                 # 将vip-strict参数传递给yutto
                 extra_args.append('--vip-strict')
+                i += 1
+            elif args[i] == '--save-cover':
+                # 将save-cover参数传递给yutto
+                extra_args.append('--save-cover')
                 i += 1
             else:
                 # 未识别的参数传递给yutto

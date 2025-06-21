@@ -216,6 +216,7 @@ def start_download():
     output_dir = data.get('output_dir', '~/Downloads').strip()
     cookie = data.get('cookie', '').strip()
     vip_strict = data.get('vip_strict', False)
+    save_cover = data.get('save_cover', False)
     debug = data.get('debug', False)
     extra_args_from_config = data.get('extra_args', [])
     
@@ -229,6 +230,8 @@ def start_download():
     extra_args = extra_args_from_config.copy() if extra_args_from_config else []
     if vip_strict:
         extra_args.append('--vip-strict')
+    if save_cover:
+        extra_args.append('--save-cover')
     if debug:
         extra_args.append('--debug')
     
@@ -316,6 +319,7 @@ def start_update_all():
     output_dir = data.get('output_dir', '~/Downloads').strip()
     cookie = data.get('cookie', '').strip()
     vip_strict = data.get('vip_strict', False)
+    save_cover = data.get('save_cover', False)
     debug = data.get('debug', False)
     extra_args_from_config = data.get('extra_args', [])
     
@@ -326,6 +330,8 @@ def start_update_all():
     extra_args = extra_args_from_config.copy() if extra_args_from_config else []
     if vip_strict:
         extra_args.append('--vip-strict')
+    if save_cover:
+        extra_args.append('--save-cover')
     if debug:
         extra_args.append('--debug')
     

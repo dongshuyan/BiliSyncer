@@ -86,6 +86,7 @@ class ConfigManager:
             'output_dir': '~/Downloads',
             'sessdata': '',
             'vip_strict': False,
+            'save_cover': False,
             'debug': False,
             'extra_args': []
         }
@@ -108,6 +109,9 @@ class ConfigManager:
         if 'vip_strict' in config and not isinstance(config['vip_strict'], bool):
             errors.append("vip_strict 必须是布尔值")
         
+        if 'save_cover' in config and not isinstance(config['save_cover'], bool):
+            errors.append("save_cover 必须是布尔值")
+        
         if 'debug' in config and not isinstance(config['debug'], bool):
             errors.append("debug 必须是布尔值")
         
@@ -126,6 +130,7 @@ class ConfigManager:
             'output_dir': config.get('output_dir', '~/Downloads'),
             'sessdata': config.get('sessdata', ''),
             'vip_strict': config.get('vip_strict', False),
+            'save_cover': config.get('save_cover', False),
             'debug': config.get('debug', False),
             'extra_args': config.get('extra_args', [])
         }

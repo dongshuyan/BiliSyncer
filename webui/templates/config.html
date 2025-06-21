@@ -51,6 +51,9 @@
                         <strong>vip_strict</strong>: 是否启用VIP严格模式
                     </li>
                     <li class="mb-2">
+                        <strong>save_cover</strong>: 是否保存视频封面
+                    </li>
+                    <li class="mb-2">
                         <strong>debug</strong>: 是否启用调试模式
                     </li>
                     <li class="mb-0">
@@ -119,7 +122,7 @@
                     </div>
                     
                     <div class="row mb-3">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="config-vip-strict" name="vip_strict">
                                 <label class="form-check-label" for="config-vip-strict">
@@ -127,7 +130,15 @@
                                 </label>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="config-save-cover" name="save_cover">
+                                <label class="form-check-label" for="config-save-cover">
+                                    保存封面
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="config-debug" name="debug">
                                 <label class="form-check-label" for="config-debug">
@@ -227,6 +238,9 @@
                         <span class="badge bg-${config.vip_strict ? 'warning' : 'secondary'} me-1">
                             ${config.vip_strict ? 'VIP模式' : '普通模式'}
                         </span>
+                        <span class="badge bg-${config.save_cover ? 'success' : 'secondary'} me-1">
+                            ${config.save_cover ? '保存封面' : '不保存封面'}
+                        </span>
                         <span class="badge bg-${config.debug ? 'info' : 'secondary'} me-1">
                             ${config.debug ? '调试模式' : '正常模式'}
                         </span>
@@ -272,6 +286,7 @@
         document.getElementById('config-output-dir').value = config.output_dir || '';
         document.getElementById('config-sessdata').value = config.sessdata || '';
         document.getElementById('config-vip-strict').checked = config.vip_strict || false;
+        document.getElementById('config-save-cover').checked = config.save_cover || false;
         document.getElementById('config-debug').checked = config.debug || false;
         
         // 处理额外参数
@@ -295,6 +310,7 @@
             output_dir: formData.get('output_dir'),
             sessdata: formData.get('sessdata'),
             vip_strict: document.getElementById('config-vip-strict').checked,
+            save_cover: document.getElementById('config-save-cover').checked,
             debug: document.getElementById('config-debug').checked,
             extra_args: extraArgs
         };

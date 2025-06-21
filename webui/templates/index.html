@@ -55,7 +55,7 @@
                     </div>
                     
                     <div class="row mb-3">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="vip_strict" name="vip_strict">
                                 <label class="form-check-label" for="vip_strict">
@@ -64,7 +64,16 @@
                                 <div class="form-text small">启用高质量VIP内容下载</div>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="save_cover" name="save_cover">
+                                <label class="form-check-label" for="save_cover">
+                                    <i class="bi bi-image me-1"></i>保存封面
+                                </label>
+                                <div class="form-text small">下载视频封面图片</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="debug" name="debug">
                                 <label class="form-check-label" for="debug">
@@ -228,6 +237,7 @@
         document.getElementById('output_dir').value = config.output_dir || '~/Downloads';
         document.getElementById('cookie').value = config.sessdata || '';
         document.getElementById('vip_strict').checked = config.vip_strict || false;
+        document.getElementById('save_cover').checked = config.save_cover || false;
         document.getElementById('debug').checked = config.debug || false;
     }
     
@@ -245,6 +255,7 @@
             output_dir: document.getElementById('output_dir').value,
             cookie: document.getElementById('cookie').value,
             vip_strict: document.getElementById('vip_strict').checked,
+            save_cover: document.getElementById('save_cover').checked,
             debug: document.getElementById('debug').checked
         };
         

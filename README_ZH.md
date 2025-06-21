@@ -92,6 +92,9 @@ python start_webui.py
 # 单次下载
 python main.py "https://www.bilibili.com/video/BV1xx411c7mD"
 
+# 带附加选项
+python main.py "URL" --vip-strict --save-cover
+
 # 批量更新所有配置任务
 python main.py --update -c "SESSDATA"
 
@@ -107,6 +110,7 @@ name: "我的配置"
 output_dir: "~/Downloads"
 sessdata: "your_sessdata_here"
 vip_strict: true
+save_cover: true
 extra_args: ["--quality", "8K"]
 ```
 
