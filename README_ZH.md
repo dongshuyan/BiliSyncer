@@ -1,6 +1,10 @@
-# BiliSyncer
+<div align="center">
+  <img src="pictures/Logo.png" alt="BiliSyncer Logo" width="200">
+  
+  # BiliSyncer
 
-🎯 **智能的B站内容同步工具** - 批量下载、断点续传、增量更新
+  🎯 **智能的B站内容同步工具** - 批量下载、断点续传、增量更新
+</div>
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

@@ -1,6 +1,10 @@
-# BiliSyncer
+<div align="center">
+  <img src="pictures/Logo.png" alt="BiliSyncer Logo" width="200">
+  
+  # BiliSyncer
 
-🎯 **Intelligent Bilibili Content Synchronization Tool** - Batch download, resume support, and incremental updates
+  🎯 **Intelligent Bilibili Content Synchronization Tool** - Batch download, resume support, and incremental updates
+</div>
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
