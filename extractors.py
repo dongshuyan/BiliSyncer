@@ -74,7 +74,16 @@ class UgcVideoExtractor(URLExtractor):
         """提取投稿视频列表"""
         avid = self._extract_avid(url)
         Logger.info(f"提取投稿视频: {avid}")
-        return await get_ugc_video_list(fetcher, avid)
+        video_data = await get_ugc_video_list(fetcher, avid)
+        
+        # 修改文件夹命名格式：投稿视频-视频BV号-视频总标题
+        folder_name = f"投稿视频-{avid}-{video_data['title']}"
+        
+        # 更新视频路径
+        for video in video_data["videos"]:
+            video["path"] = Path(folder_name) / f"{avid}-{video['title']}"
+        
+        return {"title": folder_name, "videos": video_data["videos"]}
 
 
 class BangumiExtractor(URLExtractor):
@@ -97,6 +106,9 @@ class BangumiExtractor(URLExtractor):
         # 获取番剧标题和剧集ID列表（仅获取ID，不获取详细信息）
         bangumi_title, episode_ids = await get_bangumi_episode_list(fetcher, season_id)
         
+        # 修改文件夹命名格式：番剧-番剧编号-番剧名
+        folder_name = f"番剧-{season_id}-{bangumi_title}"
+        
         videos = []
         for i, episode_id in enumerate(episode_ids):
             # 创建占位符视频条目，下载时再获取详细信息
@@ -108,13 +120,13 @@ class BangumiExtractor(URLExtractor):
                 "pubdate": 0, # 番剧没有pubdate概念
                 "author": "", # 空作者，下载时再获取
                 "duration": 0, # 空时长，下载时再获取
-                "path": Path(f"{bangumi_title}/第{i+1}话"),  # 临时路径，下载时会更新
+                "path": Path(f"{folder_name}/第{i+1}话"),  # 临时路径，下载时会更新
                 "status": "pending",  # 标记为待处理，需要下载时再获取详细信息
                 "episode_id": episode_id  # 保存episode_id用于后续获取详细信息
             }
             videos.append(video)
         
-        return {"title": bangumi_title, "videos": videos}
+        return {"title": folder_name, "videos": videos}
     
     async def _parse_season_id(self, fetcher: Fetcher, url: str) -> str:
         """根据URL类型获取season_id"""
@@ -151,6 +163,9 @@ class FavouriteExtractor(URLExtractor):
         fav_info = await get_favourite_info(fetcher, fid)
         avids = await get_favourite_avids(fetcher, fid)
         
+        # 修改文件夹命名格式：收藏夹-收藏夹ID-收藏夹名
+        folder_name = f"收藏夹-{fid}-{fav_info['title']}"
+        
         videos = []
         for avid in avids:
             # 创建占位符视频条目，稍后按需获取详细信息
@@ -162,12 +177,12 @@ class FavouriteExtractor(URLExtractor):
                 "pubdate": 0, # 空发布时间，稍后获取
                 "author": "", # 空作者，稍后获取
                 "duration": 0, # 空时长，稍后获取
-                "path": Path(f"收藏夹-{fav_info['title']}/{avid}"),
+                "path": Path(f"{folder_name}/{avid}"),  # 临时路径，下载时会更新为avid-title
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)
         
-        return {"title": f"收藏夹-{fav_info['title']}", "videos": videos}
+        return {"title": folder_name, "videos": videos}
 
 
 class SeriesExtractor(URLExtractor):
@@ -193,6 +208,10 @@ class SeriesExtractor(URLExtractor):
         
         avids = await get_series_videos(fetcher, series_id, mid)
         
+        # 修改文件夹命名格式：视频列表-视频列表ID-视频列表名
+        type_name = "视频列表" if list_type == "series" else "视频合集"
+        folder_name = f"{type_name}-{series_id}-{type_name}{series_id}"  # 暂时使用ID作为名称，后续可能需要获取实际名称
+        
         videos = []
         for avid in avids:
             # 创建占位符视频条目，稍后按需获取详细信息
@@ -204,13 +223,12 @@ class SeriesExtractor(URLExtractor):
                 "pubdate": 0, # 空发布时间，稍后获取
                 "author": "", # 空作者，稍后获取
                 "duration": 0, # 空时长，稍后获取
-                "path": Path(f"{'视频列表' if list_type == 'series' else '视频合集'}-{series_id}/{avid}"),
+                "path": Path(f"{folder_name}/{avid}"),  # 临时路径，下载时会更新为avid-title
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)
         
-        title_prefix = "视频列表" if list_type == "series" else "视频合集"
-        return {"title": f"{title_prefix}-{series_id}", "videos": videos}
+        return {"title": folder_name, "videos": videos}
 
 
 class UserSpaceExtractor(URLExtractor):
@@ -235,6 +253,9 @@ class UserSpaceExtractor(URLExtractor):
         username = await get_user_name(fetcher, mid)
         avids = await get_user_space_videos(fetcher, mid)
         
+        # 修改文件夹命名格式：UP主-UP主UID-UP主名
+        folder_name = f"UP主-{mid}-{username}"
+        
         videos = []
         for avid in avids:
             # 创建占位符视频条目，稍后按需获取详细信息
@@ -246,12 +267,12 @@ class UserSpaceExtractor(URLExtractor):
                 "pubdate": 0, # 空发布时间，稍后获取
                 "author": username, # 使用获取到的用户名
                 "duration": 0, # 空时长，稍后获取
-                "path": Path(f"用户-{mid}-{username}/{avid}"),
+                "path": Path(f"{folder_name}/{avid}"),  # 临时路径，下载时会更新为avid-title
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)
         
-        return {"title": f"用户-{mid}-{username}", "videos": videos}
+        return {"title": folder_name, "videos": videos}
 
 
 class WatchLaterExtractor(URLExtractor):
@@ -269,6 +290,9 @@ class WatchLaterExtractor(URLExtractor):
         
         avids = await get_watch_later_avids(fetcher)
         
+        # 修改文件夹命名格式：稍后再看-稍后再看ID-稍后再看名
+        folder_name = "稍后再看-watchlater-稍后再看"
+        
         videos = []
         for avid in avids:
             # 创建占位符视频条目，稍后按需获取详细信息
@@ -280,12 +304,12 @@ class WatchLaterExtractor(URLExtractor):
                 "pubdate": 0, # 空发布时间，稍后获取
                 "author": "", # 空作者，稍后获取
                 "duration": 0, # 空时长，稍后获取
-                "path": Path(f"稍后再看/{avid}"),
+                "path": Path(f"{folder_name}/{avid}"),  # 临时路径，下载时会更新为avid-title
                 "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
             }
             videos.append(video)
         
-        return {"title": "稍后再看", "videos": videos}
+        return {"title": folder_name, "videos": videos}
 
 
 # 提取器列表（按优先级排序）

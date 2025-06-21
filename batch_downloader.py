@@ -240,6 +240,9 @@ class BatchDownloader:
                     Logger.info(f"获取番剧剧集 {episode_id} 的详细信息...")
                     episode_info = await get_bangumi_episode_info(fetcher, episode_id)
                     
+                    # 获取番剧主文件夹名（保持原来的番剧-编号-名称格式）
+                    main_folder = str(video["path"]).split("/")[0]
+                    
                     # 更新视频信息
                     video.update({
                         "avid": episode_info["avid"],
@@ -248,7 +251,7 @@ class BatchDownloader:
                         "name": episode_info["name"],
                         "author": episode_info["author"],
                         "duration": episode_info["duration"],
-                        "path": Path(str(video["path"]).split("/")[0]) / episode_info["name"],  # 保持番剧文件夹名+正确剧集名
+                        "path": Path(main_folder) / episode_info["name"],  # 保持番剧文件夹名+正确剧集名
                         "status": "ready"
                     })
                     
@@ -265,18 +268,25 @@ class BatchDownloader:
                     
                     Logger.info(f"已获取并保存番剧剧集 {episode_id} 的详细信息: {episode_info['name']}")
                 else:
-                    # 投稿视频，使用原有逻辑
+                    # 投稿视频，使用原有逻辑获取详细信息
                     detailed_video_data = await get_ugc_video_list(fetcher, avid)
                     
                     # 更新视频信息
                     if detailed_video_data and detailed_video_data.get("videos"):
                         detailed_video = detailed_video_data["videos"][0]
+                        
+                        # 获取主文件夹名（保持原来的类型-ID-名称格式）
+                        main_folder = str(video["path"]).split("/")[0]
+                        
+                        # 生成单个视频的文件夹名：视频号-标题
+                        video_folder_name = f"{avid}-{detailed_video['title']}"
+                        
                         # 更新详细信息
                         video.update({
                             "cid": detailed_video["cid"],
                             "title": detailed_video["title"],
                             "name": detailed_video["name"],
-                            "path": detailed_video["path"],
+                            "path": Path(main_folder) / video_folder_name,  # 主文件夹/视频号-标题
                             "status": "ready"
                         })
                         
@@ -287,7 +297,7 @@ class BatchDownloader:
                                 "title": detailed_video["title"],
                                 "name": detailed_video["name"],
                                 "cid": str(detailed_video["cid"]),
-                                "download_path": str(detailed_video["path"]),
+                                "download_path": str(video["path"]),
                                 "status": "ready"
                             })
                         
