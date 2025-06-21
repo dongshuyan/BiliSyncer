@@ -8,6 +8,8 @@ import os
 import sys
 import asyncio
 import threading
+import signal
+import psutil
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -44,6 +46,15 @@ def create_web_logger_callback(task_id: Optional[str] = None):
             'task_id': task_id
         })
     return web_logger_callback
+
+
+def filter_task_for_json(task_data: Dict[str, Any]) -> Dict[str, Any]:
+    """过滤任务数据中不可序列化的字段，用于JSON传输"""
+    # 创建副本并移除不可序列化的字段
+    filtered_task = task_data.copy()
+    filtered_task.pop('thread', None)  # 移除Thread对象
+    filtered_task.pop('process', None)  # 移除Process对象
+    return filtered_task
 
 
 @app.route('/')
@@ -134,6 +145,67 @@ def delete_config(name):
         return jsonify({'success': False, 'message': str(e)})
 
 
+@app.route('/api/stop_task/<task_id>', methods=['POST'])
+def stop_task(task_id):
+    """强制停止指定任务"""
+    try:
+        if task_id not in current_tasks:
+            return jsonify({'success': False, 'message': '任务不存在'})
+        
+        task = current_tasks[task_id]
+        
+        # 检查任务状态
+        if task['status'] in ['completed', 'error', 'stopped']:
+            return jsonify({'success': False, 'message': '任务已经结束'})
+        
+        # 设置停止标志
+        task['should_stop'] = True
+        task['status'] = 'stopping'
+        
+        Logger.warning(f"正在停止任务 {task_id}")
+        
+        # 尝试终止相关进程
+        if 'process' in task and task['process']:
+            try:
+                # 使用psutil强制终止进程及其子进程
+                parent = psutil.Process(task['process'].pid)
+                children = parent.children(recursive=True)
+                
+                # 先尝试优雅终止
+                for child in children:
+                    try:
+                        child.terminate()
+                    except psutil.NoSuchProcess:
+                        pass
+                
+                parent.terminate()
+                
+                # 等待一秒，如果还没结束就强制杀死
+                try:
+                    parent.wait(timeout=1)
+                except psutil.TimeoutExpired:
+                    parent.kill()
+                    for child in children:
+                        try:
+                            child.kill()
+                        except psutil.NoSuchProcess:
+                            pass
+                
+                Logger.info(f"已终止任务 {task_id} 的相关进程")
+                
+            except Exception as e:
+                Logger.warning(f"终止进程时出现问题: {e}")
+        
+        # 通知前端任务状态更新
+        socketio.emit('task_update', filter_task_for_json(task))
+        
+        return jsonify({'success': True, 'message': '任务停止请求已发送'})
+        
+    except Exception as e:
+        Logger.error(f"停止任务失败: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+
 @app.route('/api/download', methods=['POST'])
 def start_download():
     """开始下载任务"""
@@ -167,14 +239,17 @@ def start_download():
         'output_dir': output_dir,
         'status': 'starting',
         'start_time': time.time(),
-        'progress': 0
+        'progress': 0,
+        'should_stop': False,  # 停止标志
+        'process': None,       # 当前进程引用
+        'thread': None         # 线程引用
     }
     
     # 在后台线程中执行下载
     def run_download():
         try:
             current_tasks[task_id]['status'] = 'running'
-            socketio.emit('task_update', current_tasks[task_id])
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
             
             # 设置Logger回调以捕获所有日志
             Logger.set_callback(create_web_logger_callback(task_id))
@@ -184,7 +259,9 @@ def start_download():
                 output_dir=Path(output_dir).expanduser(),
                 sessdata=cookie if cookie else None,
                 extra_args=extra_args,
-                original_url=url
+                original_url=url,
+                task_id=task_id,  # 传递任务ID以便检查停止标志
+                task_control=current_tasks  # 传递任务控制字典
             )
             
             # 在新的事件循环中运行异步任务
@@ -193,21 +270,34 @@ def start_download():
             loop.run_until_complete(downloader.download_from_url(url))
             loop.close()
             
-            current_tasks[task_id]['status'] = 'completed'
-            current_tasks[task_id]['progress'] = 100
-            Logger.custom(f"任务 {task_id} 下载完成", "任务管理")
+            # 检查是否被手动停止
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'completed'
+                current_tasks[task_id]['progress'] = 100
+                Logger.custom(f"任务 {task_id} 下载完成", "任务管理")
             
         except Exception as e:
-            current_tasks[task_id]['status'] = 'error'
-            current_tasks[task_id]['error'] = str(e)
-            Logger.error(f"任务 {task_id} 失败: {e}")
+            # 检查是否是因为停止导致的异常
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'error'
+                current_tasks[task_id]['error'] = str(e)
+                Logger.error(f"任务 {task_id} 失败: {e}")
         finally:
             # 清除Logger回调
             Logger.set_callback(None)
-            socketio.emit('task_update', current_tasks[task_id])
+            # 清理进程引用
+            current_tasks[task_id]['process'] = None
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
     
     thread = threading.Thread(target=run_download)
     thread.daemon = True
+    current_tasks[task_id]['thread'] = thread  # 保存线程引用
     thread.start()
     
     return jsonify({
@@ -246,14 +336,17 @@ def start_update_all():
         'output_dir': output_dir,
         'status': 'starting',
         'start_time': time.time(),
-        'progress': 0
+        'progress': 0,
+        'should_stop': False,  # 停止标志
+        'process': None,       # 当前进程引用
+        'thread': None         # 线程引用
     }
     
     # 在后台线程中执行更新
     def run_update():
         try:
             current_tasks[task_id]['status'] = 'running'
-            socketio.emit('task_update', current_tasks[task_id])
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
             
             # 设置Logger回调以捕获所有日志
             Logger.set_callback(create_web_logger_callback(task_id))
@@ -263,7 +356,9 @@ def start_update_all():
                 output_dir=Path(output_dir).expanduser(),
                 sessdata=cookie if cookie else None,
                 extra_args=extra_args,
-                original_url=None
+                original_url=None,
+                task_id=task_id,  # 传递任务ID
+                task_control=current_tasks  # 传递任务控制字典
             )
             
             # 在新的事件循环中运行异步任务
@@ -272,21 +367,34 @@ def start_update_all():
             loop.run_until_complete(downloader.update_all_tasks())
             loop.close()
             
-            current_tasks[task_id]['status'] = 'completed'
-            current_tasks[task_id]['progress'] = 100
-            Logger.custom(f"批量更新任务 {task_id} 完成", "任务管理")
+            # 检查是否被手动停止
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"批量更新任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'completed'
+                current_tasks[task_id]['progress'] = 100
+                Logger.custom(f"批量更新任务 {task_id} 完成", "任务管理")
             
         except Exception as e:
-            current_tasks[task_id]['status'] = 'error'
-            current_tasks[task_id]['error'] = str(e)
-            Logger.error(f"批量更新任务 {task_id} 失败: {e}")
+            # 检查是否是因为停止导致的异常
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"批量更新任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'error'
+                current_tasks[task_id]['error'] = str(e)
+                Logger.error(f"批量更新任务 {task_id} 失败: {e}")
         finally:
             # 清除Logger回调
             Logger.set_callback(None)
-            socketio.emit('task_update', current_tasks[task_id])
+            # 清理进程引用
+            current_tasks[task_id]['process'] = None
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
     
     thread = threading.Thread(target=run_update)
     thread.daemon = True
+    current_tasks[task_id]['thread'] = thread  # 保存线程引用
     thread.start()
     
     return jsonify({
@@ -299,7 +407,9 @@ def start_update_all():
 @app.route('/api/tasks')
 def get_tasks():
     """获取所有任务状态"""
-    return jsonify(list(current_tasks.values()))
+    # 过滤所有任务的不可序列化字段
+    filtered_tasks = [filter_task_for_json(task) for task in current_tasks.values()]
+    return jsonify(filtered_tasks)
 
 
 @app.route('/api/scan_tasks')
@@ -343,7 +453,9 @@ def handle_connect():
 @socketio.on('get_task_status')
 def handle_get_task_status():
     """获取任务状态"""
-    emit('task_status', list(current_tasks.values()))
+    # 过滤所有任务的不可序列化字段
+    filtered_tasks = [filter_task_for_json(task) for task in current_tasks.values()]
+    emit('task_status', filtered_tasks)
 
 
 if __name__ == '__main__':

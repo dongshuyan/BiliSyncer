@@ -20,14 +20,22 @@ from extractors import extract_video_list
 class BatchDownloader:
     """批量下载器"""
     
-    def __init__(self, output_dir: Path, sessdata: Optional[str] = None, extra_args: Optional[List[str]] = None, original_url: Optional[str] = None):
+    def __init__(self, output_dir: Path, sessdata: Optional[str] = None, extra_args: Optional[List[str]] = None, original_url: Optional[str] = None, task_id: Optional[str] = None, task_control: Optional[Dict] = None):
         """初始化批量下载器"""
         self.output_dir = output_dir
         self.sessdata = sessdata
         self.extra_args = extra_args or []
         self.original_url = original_url
+        self.task_id = task_id
+        self.task_control = task_control or {}
         self.fetcher = Fetcher(sessdata=sessdata)
         self.csv_manager = None  # 稍后根据任务创建
+    
+    def _should_stop(self) -> bool:
+        """检查是否应该停止任务"""
+        if self.task_id and self.task_control:
+            return self.task_control.get(self.task_id, {}).get('should_stop', False)
+        return False
     
     async def download_from_url(self, url: str) -> None:
         """从URL开始批量下载"""
@@ -154,7 +162,22 @@ class BatchDownloader:
         """步骤7: 逐个下载视频"""
         for i, video in enumerate(videos, 1):
             try:
-                Logger.info(f"[{i}/{len(videos)}] 开始下载: {video['name']}")
+                # 检查是否应该停止
+                if self._should_stop():
+                    Logger.warning(f"收到停止信号，中断下载任务")
+                    raise Exception("任务被手动停止")
+                
+                Logger.info(f"[{i}/{len(videos)}] 开始处理: {video['name']}")
+                
+                # 检查是否为不可访问的视频
+                if video.get('status') == 'unavailable':
+                    Logger.warning(f"[{i}/{len(videos)}] 跳过不可访问视频: {video['name']}")
+                    # 直接标记为已下载，避免重复尝试
+                    video_url = video['avid'].to_url()
+                    if self.csv_manager:
+                        self.csv_manager.mark_video_downloaded(video_url)
+                    Logger.info(f"[{i}/{len(videos)}] 已标记不可访问视频为已处理: {video['name']}")
+                    continue
                 
                 # 步骤7关键逻辑: 检查视频文件夹是否存在，如果存在就删除重新下载
                 await self._cleanup_existing_video_folder(video)
@@ -180,9 +203,15 @@ class BatchDownloader:
                     self.csv_manager.mark_video_downloaded(video_url)
                     
                 Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']}")
+                
+                # 添加视频间延迟，避免请求过于频繁
+                if i < len(videos):  # 不是最后一个视频
+                    await asyncio.sleep(2.0)  # 延迟2秒
                     
             except Exception as e:
                 Logger.error(f"下载视频 {video['name']} 失败: {e}")
+                # 下载失败时也添加短暂延迟，避免连续快速重试
+                await asyncio.sleep(1.0)
                 continue
         
         # 显示最终统计
@@ -289,25 +318,44 @@ class BatchDownloader:
                 cwd=Path(__file__).parent
             )
             
+            # 保存进程引用以便停止控制
+            if self.task_id and self.task_control:
+                self.task_control[self.task_id]['process'] = process
+            
             # 实时读取和转发输出
             if process.stdout:
                 while True:
-                    line = await process.stdout.readline()
-                    if not line:
-                        break
+                    # 检查是否应该停止
+                    if self._should_stop():
+                        Logger.warning("收到停止信号，终止yutto进程")
+                        process.terminate()
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=3.0)
+                        except asyncio.TimeoutError:
+                            Logger.warning("进程未在3秒内终止，强制杀死")
+                            process.kill()
+                        raise Exception("任务被手动停止")
                     
-                    # 解码输出并发送到Logger
-                    output = line.decode('utf-8', errors='ignore').strip()
-                    if output:
-                        # 根据输出内容判断日志级别
-                        if 'error' in output.lower() or 'failed' in output.lower():
-                            Logger.error(f"[yutto] {output}")
-                        elif 'warning' in output.lower() or 'warn' in output.lower():
-                            Logger.warning(f"[yutto] {output}")
-                        elif 'downloading' in output.lower() or 'progress' in output.lower() or '%' in output:
-                            Logger.custom(output, "下载进度")
-                        else:
-                            Logger.info(f"[yutto] {output}")
+                    try:
+                        line = await asyncio.wait_for(process.stdout.readline(), timeout=1.0)
+                        if not line:
+                            break
+                        
+                        # 解码输出并发送到Logger
+                        output = line.decode('utf-8', errors='ignore').strip()
+                        if output:
+                            # 根据输出内容判断日志级别
+                            if 'error' in output.lower() or 'failed' in output.lower():
+                                Logger.error(f"[yutto] {output}")
+                            elif 'warning' in output.lower() or 'warn' in output.lower():
+                                Logger.warning(f"[yutto] {output}")
+                            elif 'downloading' in output.lower() or 'progress' in output.lower() or '%' in output:
+                                Logger.custom(output, "下载进度")
+                            else:
+                                Logger.info(f"[yutto] {output}")
+                    except asyncio.TimeoutError:
+                        # 超时继续循环，用于检查停止信号
+                        continue
             
             # 等待进程完成
             return_code = await process.wait()
@@ -318,6 +366,10 @@ class BatchDownloader:
         except Exception as e:
             Logger.error(f"调用yutto失败: {e}")
             raise
+        finally:
+            # 清理进程引用
+            if self.task_id and self.task_control:
+                self.task_control[self.task_id]['process'] = None
     
     def _csv_to_video_info(self, csv_data: Dict[str, str]) -> VideoInfo:
         """将CSV数据转换为VideoInfo"""

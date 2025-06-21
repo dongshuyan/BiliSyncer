@@ -79,7 +79,7 @@ class CSVManager:
                 
                 writer = csv.DictWriter(f, fieldnames=[
                     'video_url', 'title', 'name', 'download_path', 
-                    'downloaded', 'avid', 'cid', 'pubdate'
+                    'downloaded', 'avid', 'cid', 'pubdate', 'status'
                 ])
                 writer.writeheader()
                 
@@ -91,15 +91,18 @@ class CSVManager:
                     else:
                         pubdate_str = "未知"
                     
+                    # 对于不可访问的视频，直接标记为已下载
+                    is_unavailable = video.get('status') == 'unavailable'
                     writer.writerow({
                         'video_url': video['avid'].to_url(),
                         'title': video['title'],
                         'name': video['name'],
                         'download_path': str(video['path']),
-                        'downloaded': False,
+                        'downloaded': 'True' if is_unavailable else 'False',
                         'avid': str(video['avid']),
                         'cid': str(video['cid']),
-                        'pubdate': pubdate_str
+                        'pubdate': pubdate_str,
+                        'status': video.get('status', 'normal')
                     })
             
             # 验证临时文件写入成功后，移动到正式位置
@@ -155,15 +158,18 @@ class CSVManager:
                     else:
                         pubdate_str = "未知"
                     
+                    # 对于不可访问的视频，直接标记为已下载
+                    is_unavailable = video.get('status') == 'unavailable'
                     merged_videos.append({
                         'video_url': video_url,
                         'title': video['title'],
                         'name': video['name'],
                         'download_path': str(video['path']),
-                        'downloaded': 'False',
+                        'downloaded': 'True' if is_unavailable else 'False',
                         'avid': str(video['avid']),
                         'cid': str(video['cid']),
-                        'pubdate': pubdate_str
+                        'pubdate': pubdate_str,
+                        'status': video.get('status', 'normal')
                     })
             
             # 安全写入新的CSV文件

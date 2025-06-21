@@ -160,7 +160,7 @@
             .then(response => response.json())
             .then(tasks => {
                 displayRunningTasks(tasks);
-                updateTaskCounts(tasks);
+                updateTaskCounts(tasks, allTasks); // 传入本地任务数据
             })
             .catch(error => {
                 console.error('刷新运行任务失败:', error);
@@ -181,6 +181,15 @@
                 if (data.success) {
                     allTasks = data.tasks;
                     displayLocalTasks(data.tasks);
+                    // 扫描完本地任务后，重新统计总数
+                    fetch('/api/tasks')
+                        .then(response => response.json())
+                        .then(runningTasks => {
+                            updateTaskCounts(runningTasks, allTasks);
+                        })
+                        .catch(error => {
+                            console.error('获取运行任务失败:', error);
+                        });
                 } else {
                     showAlert('danger', data.message);
                 }
@@ -220,7 +229,7 @@
                                 </small>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-2">
                             ${task.progress !== undefined ? `
                                 <div class="progress">
                                     <div class="progress-bar ${task.status === 'error' ? 'bg-danger' : ''}" 
@@ -228,6 +237,15 @@
                                         ${task.progress}%
                                     </div>
                                 </div>
+                            ` : ''}
+                        </div>
+                        <div class="col-md-1">
+                            ${(task.status === 'running' || task.status === 'starting') ? `
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="stopTask('${task.id}')" 
+                                        title="停止任务">
+                                    <i class="bi bi-stop-circle"></i>
+                                </button>
                             ` : ''}
                         </div>
                     </div>
@@ -326,16 +344,35 @@
         new bootstrap.Modal(document.getElementById('csvDetailModal')).show();
     }
     
-    function updateTaskCounts(runningTasks) {
+    function updateTaskCounts(runningTasks, localTasks = []) {
+        // 统计运行中的任务
         const running = runningTasks.filter(t => t.status === 'running' || t.status === 'starting').length;
-        const completed = runningTasks.filter(t => t.status === 'completed').length;
-        const error = runningTasks.filter(t => t.status === 'error').length;
-        const total = runningTasks.length;
+        const runningCompleted = runningTasks.filter(t => t.status === 'completed').length;
+        const runningError = runningTasks.filter(t => t.status === 'error').length;
+        const stopped = runningTasks.filter(t => t.status === 'stopped' || t.status === 'stopping').length;
+        
+        // 统计本地任务（基于下载完成度）
+        let localCompleted = 0;
+        let localTotal = 0;
+        
+        localTasks.forEach(task => {
+            if (task.total > 0) {
+                if (task.downloaded === task.total) {
+                    localCompleted++;
+                }
+                localTotal++;
+            }
+        });
+        
+        // 合并统计 - 将stopped任务计入完成数
+        const totalCompleted = runningCompleted + localCompleted + stopped;
+        const totalError = runningError; // 本地任务没有error状态
+        const totalTasks = runningTasks.length + localTotal;
         
         document.getElementById('running-count').textContent = running;
-        document.getElementById('completed-count').textContent = completed; 
-        document.getElementById('error-count').textContent = error;
-        document.getElementById('total-count').textContent = total;
+        document.getElementById('completed-count').textContent = totalCompleted; 
+        document.getElementById('error-count').textContent = totalError;
+        document.getElementById('total-count').textContent = totalTasks;
     }
     
     function clearCompletedTasks() {
@@ -346,12 +383,38 @@
         }
     }
     
+    function stopTask(taskId) {
+        if (confirm('确定要停止这个任务吗？正在下载的视频可能会中断。')) {
+            fetch(`/api/stop_task/${taskId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('success', data.message);
+                    // 立即刷新任务状态
+                    refreshAllTasks();
+                } else {
+                    showAlert('danger', data.message);
+                }
+            })
+            .catch(error => {
+                showAlert('danger', '停止任务失败: ' + error.message);
+            });
+        }
+    }
+    
     function getStatusBadgeClass(status) {
         const classes = {
             'starting': 'bg-info',
             'running': 'bg-primary',
             'completed': 'bg-success',
-            'error': 'bg-danger'
+            'error': 'bg-danger',
+            'stopping': 'bg-warning',
+            'stopped': 'bg-secondary'
         };
         return classes[status] || 'bg-secondary';
     }
@@ -361,7 +424,9 @@
             'starting': '准备中',
             'running': '运行中',
             'completed': '已完成', 
-            'error': '失败'
+            'error': '失败',
+            'stopping': '停止中',
+            'stopped': '已停止'
         };
         return texts[status] || '未知';
     }

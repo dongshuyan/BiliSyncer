@@ -126,7 +126,40 @@ class FavouritesExtractor(URLExtractor):
                     video["path"] = Path(f"收藏夹-{fav_info['title']}") / video["path"]
                 videos.extend(video_data["videos"])
             except Exception as e:
+                error_msg = str(e)
                 Logger.error(f"获取收藏夹视频 {avid} 失败: {e}")
+                
+                # 检查是否为网络相关的临时性错误
+                network_errors = [
+                    "Server disconnected", "timeout", "连接超时", 
+                    "Network is unreachable", "Connection failed",
+                    "Unknown error"  # 通常是网络问题导致的
+                ]
+                
+                # 检查是否为永久性错误（内容不可访问）
+                permanent_errors = ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]
+                
+                if any(keyword in error_msg for keyword in permanent_errors):
+                    Logger.warning(f"视频 {avid} 不可访问，将标记为已处理以跳过后续下载")
+                    # 创建一个特殊的视频条目，标记为"不可访问"
+                    unavailable_video = {
+                        "id": 1,
+                        "name": f"不可访问视频_{avid}",
+                        "avid": avid,
+                        "cid": CId("0"),  # 使用0作为占位符
+                        "title": f"不可访问视频_{avid}",
+                        "pubdate": 0,
+                        "path": Path(f"收藏夹-{fav_info['title']}/{avid}_不可访问"),
+                        "status": "unavailable"  # 特殊标记
+                    }
+                    videos.append(unavailable_video)
+                elif any(keyword in error_msg for keyword in network_errors):
+                    Logger.warning(f"视频 {avid} 获取失败可能是临时网络问题，跳过此视频但不标记")
+                    # 对于网络错误，我们跳过但不创建条目，这样下次更新时会重试
+                    pass
+                else:
+                    Logger.warning(f"视频 {avid} 获取失败，原因未知，跳过此视频")
+                
                 continue
         
         return {"title": f"收藏夹-{fav_info['title']}", "videos": videos}
@@ -161,7 +194,25 @@ class SeriesExtractor(URLExtractor):
                 video_data = await get_ugc_video_list(fetcher, avid)
                 videos.extend(video_data["videos"])
             except Exception as e:
+                error_msg = str(e)
                 Logger.error(f"获取列表视频 {avid} 失败: {e}")
+                
+                # 检查是否为"稿件不可见"等永久性错误
+                if any(keyword in error_msg for keyword in ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]):
+                    Logger.warning(f"视频 {avid} 不可访问，将标记为已处理以跳过后续下载")
+                    # 创建一个特殊的视频条目，标记为"不可访问"
+                    title_prefix = "视频列表" if list_type == "series" else "视频合集"
+                    unavailable_video = {
+                        "id": 1,
+                        "name": f"不可访问视频_{avid}",
+                        "avid": avid,
+                        "cid": CId("0"),
+                        "title": f"不可访问视频_{avid}",
+                        "pubdate": 0,
+                        "path": Path(f"{title_prefix}-{series_id}/{avid}_不可访问"),
+                        "status": "unavailable"
+                    }
+                    videos.append(unavailable_video)
                 continue
         
         title_prefix = "视频列表" if list_type == "series" else "视频合集"
@@ -194,7 +245,24 @@ class UserSpaceExtractor(URLExtractor):
                 video_data = await get_ugc_video_list(fetcher, avid)
                 videos.extend(video_data["videos"])
             except Exception as e:
+                error_msg = str(e)
                 Logger.error(f"获取用户视频 {avid} 失败: {e}")
+                
+                # 检查是否为"稿件不可见"等永久性错误
+                if any(keyword in error_msg for keyword in ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]):
+                    Logger.warning(f"视频 {avid} 不可访问，将标记为已处理以跳过后续下载")
+                    # 创建一个特殊的视频条目，标记为"不可访问"
+                    unavailable_video = {
+                        "id": 1,
+                        "name": f"不可访问视频_{avid}",
+                        "avid": avid,
+                        "cid": CId("0"),
+                        "title": f"不可访问视频_{avid}",
+                        "pubdate": 0,
+                        "path": Path(f"用户-{mid}/{avid}_不可访问"),
+                        "status": "unavailable"
+                    }
+                    videos.append(unavailable_video)
                 continue
         
         return {"title": f"用户-{mid}", "videos": videos}
@@ -221,7 +289,24 @@ class WatchLaterExtractor(URLExtractor):
                 video_data = await get_ugc_video_list(fetcher, avid)
                 videos.extend(video_data["videos"])
             except Exception as e:
+                error_msg = str(e)
                 Logger.error(f"获取稍后再看视频 {avid} 失败: {e}")
+                
+                # 检查是否为"稿件不可见"等永久性错误
+                if any(keyword in error_msg for keyword in ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]):
+                    Logger.warning(f"视频 {avid} 不可访问，将标记为已处理以跳过后续下载")
+                    # 创建一个特殊的视频条目，标记为"不可访问"
+                    unavailable_video = {
+                        "id": 1,
+                        "name": f"不可访问视频_{avid}",
+                        "avid": avid,
+                        "cid": CId("0"),
+                        "title": f"不可访问视频_{avid}",
+                        "pubdate": 0,
+                        "path": Path(f"稍后再看/{avid}_不可访问"),
+                        "status": "unavailable"
+                    }
+                    videos.append(unavailable_video)
                 continue
         
         return {"title": "稍后再看", "videos": videos}
