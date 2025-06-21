@@ -32,22 +32,31 @@ BiliSyncer is a professional Bilibili content management tool that extends yutto
 - Advanced retry mechanisms | Network error handling
 - Force stop capabilities | Cross-platform compatibility
 
-## 🆚 BiliSyncer vs Yutto
+## 🆚 BiliSyncer vs Yutto vs Yutto-uiya
 
-| Feature | BiliSyncer | Yutto |
-|---------|------------|-------|
-| **Core Purpose** | Batch sync & management | Single/bulk downloads |
-| **Web Interface** | ✅ Full-featured GUI | ❌ Command-line only |
-| **Resume Downloads** | ✅ Automatic resume | ⚠️ Manual retry |
-| **Incremental Updates** | ✅ Smart sync detection | ❌ Full re-download |
-| **Status Tracking** | ✅ CSV-based management | ❌ No persistent state |
-| **Batch Management** | ✅ Multi-task dashboard | ❌ Single task focus |
-| **Content Organization** | ✅ Auto folder structure | ⚠️ Basic organization |
-| **Task Monitoring** | ✅ Real-time progress | ❌ Terminal output only |
-| **Configuration** | ✅ Web + YAML configs | ⚠️ Command args only |
-| **Update Workflow** | ✅ One-click batch updates | ❌ Manual re-execution |
+| Feature | BiliSyncer | Yutto | Yutto-uiya |
+|---------|------------|-------|------------|
+| **Core Purpose** | Batch sync & management | Versatile CLI downloader | Simple WebUI wrapper |
+| **Interface Type** | Professional Web Dashboard | Powerful Command Line | User-friendly Streamlit UI |
+| **Download Engine** | Built on yutto | Original robust engine | Built on yutto |
+| **Batch Operations** | ✅ Multi-task management | ✅ Batch download support | ✅ Basic batch support |
+| **Resume Downloads** | ✅ Automatic detection | ✅ Built-in resume capability | ✅ Inherits yutto's resume |
+| **Incremental Updates** | ✅ Smart sync detection | ➖ Manual re-execution | ➖ Manual re-execution |
+| **Status Persistence** | ✅ CSV-based tracking | ➖ Session-based only | ➖ Session-based only |
+| **Configuration** | ✅ Web + YAML management | ✅ Rich CLI options | ✅ Simple web forms |
+| **Content Organization** | ✅ Structured folder naming | ✅ Flexible path templates | ✅ Basic organization |
+| **Performance** | ⚠️ Web overhead | ✅ Lightweight & fast | ⚠️ Streamlit overhead |
+| **Extensibility** | ⚠️ Web-focused architecture | ✅ Highly modular design | ⚠️ UI-focused |
+| **Learning Curve** | 🟢 Beginner-friendly | 🟡 Technical users | 🟢 Very easy |
+| **Use Case** | Content management | Power user downloads | Casual downloading |
 
-**BiliSyncer = Yutto + Batch Management + Web Interface + Sync Intelligence**
+### 🎯 Each Tool's Strength
+
+**Yutto**: The robust foundation - powerful, fast, and highly configurable CLI tool perfect for technical users who need maximum control and performance.
+
+**Yutto-uiya**: The accessibility bridge - brings yutto's power to casual users through a clean, simple web interface without complexity.
+
+**BiliSyncer**: The management layer - adds enterprise-level batch management, sync intelligence, and persistent tracking for systematic content organization.
 
 ## 📱 Interface Preview
 
