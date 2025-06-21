@@ -219,8 +219,8 @@ class BatchDownloader:
     def _get_video_url(self, video: VideoInfo) -> str:
         """获取视频URL"""
         if "episode_id" in video:
-            # 番剧视频使用特殊格式
-            return f"bangumi://ep{video['episode_id']}"
+            # 番剧视频使用标准的B站URL格式，与CSV保存格式一致
+            return f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
         else:
             # 普通视频使用avid
             return video['avid'].to_url()
@@ -243,6 +243,9 @@ class BatchDownloader:
                     # 获取番剧主文件夹名（保持原来的番剧-编号-名称格式）
                     main_folder = str(video["path"]).split("/")[0]
                     
+                    # 生成番剧视频的文件夹名：视频号-标题
+                    video_folder_name = f"{episode_info['avid']}-{episode_info['name']}"
+                    
                     # 更新视频信息
                     video.update({
                         "avid": episode_info["avid"],
@@ -251,7 +254,7 @@ class BatchDownloader:
                         "name": episode_info["name"],
                         "author": episode_info["author"],
                         "duration": episode_info["duration"],
-                        "path": Path(main_folder) / episode_info["name"],  # 保持番剧文件夹名+正确剧集名
+                        "path": Path(main_folder) / video_folder_name,  # 主文件夹/视频号-标题
                         "status": "ready"
                     })
                     
@@ -542,9 +545,15 @@ class BatchDownloader:
         video_url = csv_data['video_url']
         
         # 处理不同类型的视频
-        if video_url.startswith('bangumi://ep'):
-            # 番剧视频，使用episode_id
-            episode_id = csv_data['avid']  # 在番剧中，avid字段存储的是episode_id
+        if 'bangumi/play/ep' in video_url:
+            # 番剧视频，从URL中提取episode_id
+            import re
+            ep_match = re.search(r'/ep(\d+)', video_url)
+            if ep_match:
+                episode_id = ep_match.group(1)
+            else:
+                episode_id = csv_data['avid']  # 备用方案
+            
             video_info = {
                 'id': 1,
                 'name': csv_data['name'],

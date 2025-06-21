@@ -96,10 +96,10 @@ class CSVManager:
                     if str(cid_value) == "0":
                         cid_value = ""
                     
-                    # 处理video_url - 番剧视频使用特殊格式
+                    # 处理video_url - 番剧视频使用标准B站URL格式
                     if "episode_id" in video:
-                        # 番剧视频使用episode_id作为唯一标识
-                        video_url = f"bangumi://ep{video['episode_id']}"
+                        # 番剧视频使用标准的B站URL格式
+                        video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
                         avid_str = video.get('episode_id', '')
                     else:
                         # 普通视频使用avid
@@ -178,10 +178,10 @@ class CSVManager:
                     if str(cid_value) == "0":
                         cid_value = ""
                     
-                    # 处理video_url - 番剧视频使用特殊格式
+                    # 处理video_url - 番剧视频使用标准B站URL格式
                     if "episode_id" in video:
-                        # 番剧视频使用episode_id作为唯一标识
-                        video_url = f"bangumi://ep{video['episode_id']}"
+                        # 番剧视频使用标准的B站URL格式
+                        video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
                         avid_str = video.get('episode_id', '')
                     else:
                         # 普通视频使用avid
