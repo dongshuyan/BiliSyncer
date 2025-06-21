@@ -122,23 +122,45 @@ async def get_favourite_info(fetcher: Fetcher, fid: FId) -> Dict[str, Any]:
 
 async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[Dict[str, Any]]:
     """获取收藏夹视频列表（包含基本信息）"""
-    api = f"https://api.bilibili.com/x/v3/fav/resource/list?media_id={fid}&pn=1&ps=20"
-    res_json = await fetcher.fetch_json(api)
+    all_videos = []
+    pn = 1
+    ps = 20  # 每页数量
     
-    if not res_json or res_json.get("code") != 0:
-        raise Exception(f"无法获取收藏夹 {fid} 视频列表")
+    while True:
+        api = f"https://api.bilibili.com/x/v3/fav/resource/list?media_id={fid}&pn={pn}&ps={ps}"
+        res_json = await fetcher.fetch_json(api)
+        
+        if not res_json or res_json.get("code") != 0:
+            if pn == 1:  # 第一页失败，抛出异常
+                raise Exception(f"无法获取收藏夹 {fid} 视频列表")
+            else:  # 后续页面失败，可能是没有更多数据
+                break
+        
+        medias = res_json["data"]["medias"]
+        if not medias:
+            break
+        
+        for video_info in medias:
+            all_videos.append({
+                "avid": BvId(video_info["bvid"]),
+                "title": video_info.get("title", ""),
+                "pubdate": video_info.get("pubtime", 0),
+                "duration": video_info.get("duration", 0),
+                "author": video_info.get("upper", {}).get("name", "")
+            })
+        
+        # 检查是否还有更多页面
+        data = res_json["data"]
+        if data.get("has_more", False):
+            pn += 1
+            # 添加延迟避免请求过快
+            import asyncio
+            await asyncio.sleep(0.5)
+        else:
+            break
     
-    videos = []
-    for video_info in res_json["data"]["medias"] or []:
-        videos.append({
-            "avid": BvId(video_info["bvid"]),
-            "title": video_info.get("title", ""),
-            "pubdate": video_info.get("pubtime", 0),
-            "duration": video_info.get("duration", 0),
-            "author": video_info.get("upper", {}).get("name", "")
-        })
-    
-    return videos
+    Logger.info(f"收藏夹 {fid} 共获取到 {len(all_videos)} 个视频")
+    return all_videos
 
 
 async def get_user_space_videos(fetcher: Fetcher, mid: MId, max_pages: int = 5) -> List[Dict[str, Any]]:

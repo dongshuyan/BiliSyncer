@@ -332,30 +332,31 @@ class BatchDownloader:
         if video.get("status") == "pending":
             Logger.info(f"获取视频 {avid} 的详细信息...")
             try:
-                fetcher = Fetcher()
-                detailed_video_data = await get_ugc_video_list(fetcher, avid)
-                
-                # 更新视频信息
-                if detailed_video_data and detailed_video_data.get("videos"):
-                    detailed_video = detailed_video_data["videos"][0]
-                    # 更新详细信息
-                    video.update({
-                        "cid": detailed_video["cid"],
-                        "path": detailed_video["path"],
-                        "status": "ready"
-                    })
+                # 使用正确的异步上下文管理器语法
+                async with Fetcher(sessdata=self.sessdata) as fetcher:
+                    detailed_video_data = await get_ugc_video_list(fetcher, avid)
                     
-                    # 立即更新CSV文件中的详细信息
-                    self.csv_manager.update_video_info(video_url, {
-                        "cid": str(detailed_video["cid"]),
-                        "download_path": str(detailed_video["path"]),
-                        "status": "ready"
-                    })
-                    
-                    Logger.info(f"已获取并保存视频 {avid} 的详细信息")
-                else:
-                    raise Exception("无法获取视频详细信息")
-                    
+                    # 更新视频信息
+                    if detailed_video_data and detailed_video_data.get("videos"):
+                        detailed_video = detailed_video_data["videos"][0]
+                        # 更新详细信息
+                        video.update({
+                            "cid": detailed_video["cid"],
+                            "path": detailed_video["path"],
+                            "status": "ready"
+                        })
+                        
+                        # 立即更新CSV文件中的详细信息
+                        self.csv_manager.update_video_info(video_url, {
+                            "cid": str(detailed_video["cid"]),
+                            "download_path": str(detailed_video["path"]),
+                            "status": "ready"
+                        })
+                        
+                        Logger.info(f"已获取并保存视频 {avid} 的详细信息")
+                    else:
+                        raise Exception("无法获取视频详细信息")
+                        
             except Exception as e:
                 error_msg = str(e)
                 Logger.error(f"获取视频 {avid} 详细信息失败: {e}")
