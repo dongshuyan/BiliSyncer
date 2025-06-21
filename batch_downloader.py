@@ -326,37 +326,43 @@ class BatchDownloader:
         if not self.csv_manager:
             return
             
-        # yutto下载时可能创建以视频标题命名的文件夹或直接创建文件
-        video_name = self._sanitize_filename(video['title'])
+        # 获取最终的视频文件夹名（即视频号-标题格式）
+        video_path = video.get('path', Path(f"{video['avid']}"))
+        if isinstance(video_path, str):
+            video_path = Path(video_path)
+            
+        final_video_folder_name = video_path.name
         task_dir = self.csv_manager.task_dir
+        
+        # 完整的视频文件夹路径
+        video_folder_path = task_dir / final_video_folder_name
         
         cleaned_items = []
         
-        # 1. 检查并删除文件夹
-        video_folder_path = task_dir / video_name
+        # 1. 检查并删除整个视频文件夹
         if video_folder_path.exists() and video_folder_path.is_dir():
             try:
                 shutil.rmtree(video_folder_path, onerror=self._remove_readonly)
-                cleaned_items.append(f"文件夹: {video_name}")
+                cleaned_items.append(f"文件夹: {final_video_folder_name}")
             except Exception as e:
                 Logger.warning(f"删除文件夹时出现警告: {video_folder_path} - {e}")
         
-        # 2. 检查并删除可能的视频文件和相关文件
+        # 2. 检查并删除可能的视频文件和相关文件（如果直接在根目录）
         # yutto可能创建的文件扩展名
         possible_extensions = ['.mp4', '.flv', '.ass', '.srt', '_audio.m4s', '_video.m4s', '-poster.jpg']
         
         for ext in possible_extensions:
-            video_file_path = task_dir / f"{video_name}{ext}"
+            video_file_path = task_dir / f"{final_video_folder_name}{ext}"
             if video_file_path.exists():
                 try:
                     video_file_path.unlink()
-                    cleaned_items.append(f"文件: {video_name}{ext}")
+                    cleaned_items.append(f"文件: {final_video_folder_name}{ext}")
                 except Exception as e:
                     Logger.warning(f"删除文件时出现警告: {video_file_path} - {e}")
         
         # 3. 检查中文字幕文件（可能包含特殊字符）
         for item in task_dir.iterdir():
-            if item.name.startswith(video_name) and ('中文' in item.name or '自动生成' in item.name):
+            if item.name.startswith(final_video_folder_name) and ('中文' in item.name or '自动生成' in item.name):
                 try:
                     item.unlink()
                     cleaned_items.append(f"字幕文件: {item.name}")
@@ -364,11 +370,11 @@ class BatchDownloader:
                     Logger.warning(f"删除字幕文件时出现警告: {item} - {e}")
         
         if cleaned_items:
-            Logger.info(f"清理已存在的视频相关内容: {video_name}")
+            Logger.info(f"清理已存在的视频相关内容: {final_video_folder_name}")
             for item in cleaned_items:
                 Logger.debug(f"  已删除 {item}")
         else:
-            Logger.debug(f"未发现需要清理的内容: {video_name}")
+            Logger.debug(f"未发现需要清理的内容: {final_video_folder_name}")
     
     def _remove_readonly(self, func, path, exc):
         """处理只读文件删除"""
@@ -439,18 +445,22 @@ class BatchDownloader:
             return False
         
         # 构建yutto命令
-        video_path = video.get('path', f"{avid}")
-        video_cid = video.get('cid', CId("0"))
-        
-        # 构建yutto命令
         yutto_cmd = ["yutto"]
         
         # 视频URL - 番剧视频需要使用实际的avid
         actual_video_url = video['avid'].to_url()
         yutto_cmd.append(actual_video_url)
         
-        # 输出目录 - 使用视频标题创建子目录
-        video_output_dir = output_dir / self._sanitize_filename(video['title'])
+        # 输出目录 - 使用video['path']中设置的最终文件夹名（即视频号-标题格式）
+        video_path = video.get('path', Path(f"{avid}"))
+        if isinstance(video_path, str):
+            video_path = Path(video_path)
+        
+        # 获取最终的视频文件夹名（即视频号-标题格式）
+        final_video_folder_name = video_path.name
+        
+        # yutto的输出目录设置为任务主目录
+        video_output_dir = output_dir / final_video_folder_name
         yutto_cmd.extend(["-d", str(video_output_dir)])
         
         # 如果有SESSDATA，添加-c参数
