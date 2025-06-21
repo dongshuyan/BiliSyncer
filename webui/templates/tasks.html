@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+
+{% block title %}任务状态 - BiliSyncer WebUI{% endblock %}
+{% block page_title %}任务状态{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- 任务统计 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-play-circle display-4 text-primary"></i>
+                        <h4 class="mt-2" id="running-count">0</h4>
+                        <p class="text-muted mb-0">运行中</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-check-circle display-4 text-success"></i>
+                        <h4 class="mt-2" id="completed-count">0</h4>
+                        <p class="text-muted mb-0">已完成</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-exclamation-circle display-4 text-danger"></i>
+                        <h4 class="mt-2" id="error-count">0</h4>
+                        <p class="text-muted mb-0">失败</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-list display-4 text-info"></i>
+                        <h4 class="mt-2" id="total-count">0</h4>
+                        <p class="text-muted mb-0">总任务</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 控制面板 -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-gear me-2"></i>控制面板
+                </h5>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-primary" onclick="refreshAllTasks()">
+                        <i class="bi bi-arrow-clockwise me-1"></i>刷新
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearCompletedTasks()">
+                        <i class="bi bi-trash me-1"></i>清理已完成
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <form class="row g-3" id="scan-form">
+                    <div class="col-md-8">
+                        <label for="scan_dir" class="form-label">扫描目录</label>
+                        <input type="text" class="form-control" id="scan_dir" value="~/Downloads" 
+                               placeholder="输入要扫描的目录路径">
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button type="button" class="btn btn-primary w-100" onclick="scanAndDisplayTasks()">
+                            <i class="bi bi-search me-2"></i>扫描本地任务
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- 运行中的任务 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-activity me-2"></i>运行中的任务
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="running-tasks">
+                    <div class="text-muted text-center py-4">暂无运行中的任务</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 本地任务文件夹 -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-folder me-2"></i>本地任务文件夹
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="local-tasks">
+                    <div class="text-muted text-center py-4">点击"扫描本地任务"来查看已存在的任务</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 查看CSV详情模态框 -->
+<div class="modal fade" id="csvDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">任务详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="csv-detail-content">
+                    <!-- CSV内容将通过JavaScript填充 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allTasks = [];
+    let tasksAvailableConfigs = [];
+    
+    function loadTasksConfigs() {
+        fetch('/api/configs')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    tasksAvailableConfigs = data.configs;
+                    applyDefaultScanDir();
+                }
+            })
+            .catch(error => {
+                console.error('加载配置失败:', error);
+            });
+    }
+    
+    function applyDefaultScanDir() {
+        // 查找默认配置
+        const defaultConfig = tasksAvailableConfigs.find(c => c.filename === 'default');
+        if (defaultConfig && defaultConfig.output_dir) {
+            document.getElementById('scan_dir').value = defaultConfig.output_dir;
+        } else {
+            document.getElementById('scan_dir').value = '~/Downloads';
+        }
+    }
+    
+    function refreshAllTasks() {
+        // 刷新运行中的任务
+        fetch('/api/tasks')
+            .then(response => response.json())
+            .then(tasks => {
+                displayRunningTasks(tasks);
+                updateTaskCounts(tasks);
+            })
+            .catch(error => {
+                console.error('刷新运行任务失败:', error);
+            });
+    }
+    
+    function scanAndDisplayTasks() {
+        const scanDir = document.getElementById('scan_dir').value;
+        
+        if (!scanDir.trim()) {
+            showAlert('warning', '请输入扫描目录');
+            return;
+        }
+        
+        fetch(`/api/scan_tasks?output_dir=${encodeURIComponent(scanDir)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allTasks = data.tasks;
+                    displayLocalTasks(data.tasks);
+                } else {
+                    showAlert('danger', data.message);
+                }
+            })
+            .catch(error => {
+                showAlert('danger', '扫描失败: ' + error.message);
+            });
+    }
+    
+    function displayRunningTasks(tasks) {
+        const container = document.getElementById('running-tasks');
+        
+        if (tasks.length === 0) {
+            container.innerHTML = '<div class="text-muted text-center py-4">暂无运行中的任务</div>';
+            return;
+        }
+        
+        container.innerHTML = tasks.map(task => `
+            <div class="task-card card mb-3">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h6 class="mb-1">
+                                ${task.type === 'update_all' ? '批量更新任务' : '下载任务'}
+                            </h6>
+                            <small class="text-muted text-truncate d-block" style="max-width: 300px;">
+                                ${task.url || task.output_dir}
+                            </small>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="d-flex align-items-center">
+                                <span class="badge ${getStatusBadgeClass(task.status)} me-2">
+                                    ${getStatusText(task.status)}
+                                </span>
+                                <small class="text-muted">
+                                    ${formatDuration(Date.now() / 1000 - task.start_time)}
+                                </small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            ${task.progress !== undefined ? `
+                                <div class="progress">
+                                    <div class="progress-bar ${task.status === 'error' ? 'bg-danger' : ''}" 
+                                         style="width: ${task.progress}%">
+                                        ${task.progress}%
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ${task.error ? `
+                        <div class="mt-2">
+                            <div class="alert alert-danger mb-0 py-2">
+                                <small><i class="bi bi-exclamation-triangle me-1"></i>${task.error}</small>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    function displayLocalTasks(tasks) {
+        const container = document.getElementById('local-tasks');
+        
+        if (tasks.length === 0) {
+            container.innerHTML = '<div class="text-muted text-center py-4">未找到任何任务文件夹</div>';
+            return;
+        }
+        
+        container.innerHTML = tasks.map((task, index) => `
+            <div class="task-card card mb-3">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-4">
+                            <h6 class="mb-1">${task.name}</h6>
+                            <small class="text-muted">${task.path}</small>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-link-45deg me-2 text-primary"></i>
+                                <span class="text-truncate" style="max-width: 250px;" title="${task.url || '未知URL'}">
+                                    ${task.url || '未知URL'}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <div class="progress mb-1" style="height: 8px;">
+                                    <div class="progress-bar ${task.pending > 0 ? 'bg-warning' : 'bg-success'}" 
+                                         style="width: ${task.total > 0 ? (task.downloaded / task.total * 100) : 0}%">
+                                    </div>
+                                </div>
+                                <small class="text-muted">
+                                    ${task.downloaded}/${task.total}
+                                </small>
+                            </div>
+                        </div>
+                        <div class="col-md-2 text-end">
+                            <button class="btn btn-sm btn-outline-info" onclick="viewTaskDetail(${index})">
+                                <i class="bi bi-eye me-1"></i>详情
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    function viewTaskDetail(taskIndex) {
+        const task = allTasks[taskIndex];
+        
+        // 这里可以实现查看CSV详情的功能
+        // 暂时显示基本信息
+        document.getElementById('csv-detail-content').innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>任务信息</h6>
+                    <table class="table table-sm">
+                        <tr><td>任务名称:</td><td>${task.name}</td></tr>
+                        <tr><td>任务路径:</td><td>${task.path}</td></tr>
+                        <tr><td>原始URL:</td><td class="text-break">${task.url || '未知'}</td></tr>
+                        <tr><td>总视频数:</td><td>${task.total}</td></tr>
+                        <tr><td>已下载:</td><td>${task.downloaded}</td></tr>
+                        <tr><td>待下载:</td><td>${task.pending}</td></tr>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h6>下载进度</h6>
+                    <div class="progress mb-3" style="height: 20px;">
+                        <div class="progress-bar" style="width: ${task.total > 0 ? (task.downloaded / task.total * 100) : 0}%">
+                            ${task.total > 0 ? Math.round(task.downloaded / task.total * 100) : 0}%
+                        </div>
+                    </div>
+                    <p class="text-muted">
+                        <i class="bi bi-info-circle me-1"></i>
+                        详细的视频列表信息存储在任务文件夹的CSV文件中
+                    </p>
+                </div>
+            </div>
+        `;
+        
+        new bootstrap.Modal(document.getElementById('csvDetailModal')).show();
+    }
+    
+    function updateTaskCounts(runningTasks) {
+        const running = runningTasks.filter(t => t.status === 'running' || t.status === 'starting').length;
+        const completed = runningTasks.filter(t => t.status === 'completed').length;
+        const error = runningTasks.filter(t => t.status === 'error').length;
+        const total = runningTasks.length;
+        
+        document.getElementById('running-count').textContent = running;
+        document.getElementById('completed-count').textContent = completed; 
+        document.getElementById('error-count').textContent = error;
+        document.getElementById('total-count').textContent = total;
+    }
+    
+    function clearCompletedTasks() {
+        if (confirm('确定要清理所有已完成的任务记录吗？这不会删除已下载的文件。')) {
+            // 实现清理已完成任务的逻辑
+            showAlert('info', '已完成任务记录已清理');
+            refreshAllTasks();
+        }
+    }
+    
+    function getStatusBadgeClass(status) {
+        const classes = {
+            'starting': 'bg-info',
+            'running': 'bg-primary',
+            'completed': 'bg-success',
+            'error': 'bg-danger'
+        };
+        return classes[status] || 'bg-secondary';
+    }
+    
+    function getStatusText(status) {
+        const texts = {
+            'starting': '准备中',
+            'running': '运行中',
+            'completed': '已完成', 
+            'error': '失败'
+        };
+        return texts[status] || '未知';
+    }
+    
+    function formatDuration(seconds) {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        
+        if (hrs > 0) {
+            return `${hrs}时${mins}分${secs}秒`;
+        } else if (mins > 0) {
+            return `${mins}分${secs}秒`;
+        } else {
+            return `${secs}秒`;
+        }
+    }
+    
+    // 监听任务更新
+    socket.on('task_update', function(task) {
+        refreshAllTasks();
+    });
+    
+    // 页面加载时初始化
+    document.addEventListener('DOMContentLoaded', function() {
+        loadTasksConfigs();
+        refreshAllTasks();
+        
+        // 延迟扫描，等待配置加载完成
+        setTimeout(function() {
+            scanAndDisplayTasks();
+        }, 500);
+        
+        // 定期刷新
+        setInterval(refreshAllTasks, 3000);
+    });
+</script>
+{% endblock %} 

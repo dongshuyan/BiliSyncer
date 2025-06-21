@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block title %}批量更新 - BiliSyncer WebUI{% endblock %}
+{% block page_title %}批量更新{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <!-- 批量更新表单 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-arrow-clockwise me-2"></i>批量更新所有任务
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>功能说明：</strong>扫描输出目录中的所有任务文件夹，检查每个任务的CSV文件，获取原始URL并更新下载列表，只下载新增的视频内容。
+                </div>
+                
+                <form id="update-form">
+                    <div class="mb-3">
+                        <label for="update_output_dir" class="form-label">
+                            <i class="bi bi-folder me-1"></i>输出目录 *
+                        </label>
+                        <input type="text" class="form-control" id="update_output_dir" name="output_dir" 
+                               value="~/Downloads" placeholder="~/Downloads" required>
+                        <div class="form-text">包含所有任务文件夹的根目录</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="update-config-select" class="form-label">
+                            <i class="bi bi-gear me-1"></i>配置文件
+                        </label>
+                        <select class="form-select" id="update-config-select" name="config">
+                            <option value="">手动配置</option>
+                        </select>
+                        <div class="form-text">选择预设配置或手动设置参数</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="update_cookie" class="form-label">
+                            <i class="bi bi-key me-1"></i>SESSDATA Cookie
+                        </label>
+                        <input type="password" class="form-control" id="update_cookie" name="cookie" 
+                               placeholder="登录后的SESSDATA值（可选）">
+                        <div class="form-text">更新需要权限的内容时填写</div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="update_vip_strict" name="vip_strict">
+                                <label class="form-check-label" for="update_vip_strict">
+                                    <i class="bi bi-star me-1"></i>VIP严格模式
+                                </label>
+                                <div class="form-text small">启用高质量VIP内容下载</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="update_debug" name="debug">
+                                <label class="form-check-label" for="update_debug">
+                                    <i class="bi bi-bug me-1"></i>调试模式
+                                </label>
+                                <div class="form-text small">显示详细调试信息</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary" onclick="scanTasks()">
+                            <i class="bi bi-search me-2"></i>扫描任务
+                        </button>
+                        <button type="submit" class="btn btn-warning flex-grow-1">
+                            <i class="bi bi-arrow-clockwise me-2"></i>开始批量更新
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- 更新说明 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-question-circle me-2"></i>更新流程
+                </h6>
+            </div>
+            <div class="card-body">
+                <ol class="mb-0">
+                    <li class="mb-2">扫描输出目录中的所有任务文件夹</li>
+                    <li class="mb-2">读取每个任务的CSV文件获取原始URL</li>
+                    <li class="mb-2">重新获取最新的视频列表</li>
+                    <li class="mb-2">对比CSV记录，识别新增视频</li>
+                    <li class="mb-2">只下载新增的视频内容</li>
+                    <li class="mb-0">更新CSV文件状态</li>
+                </ol>
+            </div>
+        </div>
+        
+        <!-- 注意事项 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>注意事项
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li class="mb-2">
+                        <strong>断点续传：</strong>已下载的视频不会重复下载
+                    </li>
+                    <li class="mb-2">
+                        <strong>权限要求：</strong>某些内容可能需要登录Cookie
+                    </li>
+                    <li class="mb-2">
+                        <strong>网络稳定：</strong>建议在网络稳定时进行批量更新
+                    </li>
+                    <li class="mb-0">
+                        <strong>存储空间：</strong>确保有足够的存储空间
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 扫描结果 -->
+<div class="row" id="scan-results" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-list me-2"></i>扫描到的任务
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="tasks-list">
+                    <!-- 任务列表将通过JavaScript填充 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let updateAvailableConfigs = [];
+    
+    function loadUpdateConfigs() {
+        fetch('/api/configs')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateAvailableConfigs = data.configs;
+                    updateUpdateConfigSelect();
+                }
+            })
+            .catch(error => {
+                console.error('加载配置失败:', error);
+            });
+    }
+    
+    function updateUpdateConfigSelect() {
+        const select = document.getElementById('update-config-select');
+        select.innerHTML = '<option value="">手动配置</option>';
+        
+        updateAvailableConfigs.forEach(config => {
+            const option = document.createElement('option');
+            option.value = config.filename;
+            option.textContent = config.name;
+            
+            // 默认选择默认配置
+            if (config.filename === 'default') {
+                option.selected = true;
+            }
+            
+            select.appendChild(option);
+        });
+        
+        // 应用默认配置
+        applyUpdateConfig('default');
+    }
+    
+    function applyUpdateConfig(configName) {
+        if (!configName) return;
+        
+        const config = updateAvailableConfigs.find(c => c.filename === configName);
+        if (!config) return;
+        
+        // 应用配置到表单
+        document.getElementById('update_output_dir').value = config.output_dir || '~/Downloads';
+        document.getElementById('update_cookie').value = config.sessdata || '';
+        document.getElementById('update_vip_strict').checked = config.vip_strict || false;
+        document.getElementById('update_debug').checked = config.debug || false;
+    }
+    
+    // 监听配置选择变化
+    document.getElementById('update-config-select').addEventListener('change', function(e) {
+        applyUpdateConfig(e.target.value);
+    });
+    
+    document.getElementById('update-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const selectedConfig = document.getElementById('update-config-select').value;
+        let formData = {
+            output_dir: document.getElementById('update_output_dir').value,
+            cookie: document.getElementById('update_cookie').value,
+            vip_strict: document.getElementById('update_vip_strict').checked,
+            debug: document.getElementById('update_debug').checked
+        };
+        
+        // 如果选择了配置文件，添加额外参数
+        if (selectedConfig) {
+            const config = updateAvailableConfigs.find(c => c.filename === selectedConfig);
+            if (config && config.extra_args) {
+                formData.extra_args = config.extra_args;
+            }
+        }
+        
+        submitForm('/api/update_all', formData, function(response) {
+            // 可以在这里添加额外的成功处理逻辑
+        });
+    });
+    
+    function scanTasks() {
+        const outputDir = document.getElementById('update_output_dir').value;
+        
+        if (!outputDir.trim()) {
+            showAlert('warning', '请先输入输出目录');
+            return;
+        }
+        
+        fetch(`/api/scan_tasks?output_dir=${encodeURIComponent(outputDir)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayTasks(data.tasks);
+                } else {
+                    showAlert('danger', data.message);
+                }
+            })
+            .catch(error => {
+                showAlert('danger', '扫描失败: ' + error.message);
+            });
+    }
+    
+    function displayTasks(tasks) {
+        const resultsDiv = document.getElementById('scan-results');
+        const tasksListDiv = document.getElementById('tasks-list');
+        
+        if (tasks.length === 0) {
+            tasksListDiv.innerHTML = '<div class="text-muted text-center py-4">未找到任何任务文件夹</div>';
+            resultsDiv.style.display = 'block';
+            return;
+        }
+        
+        tasksListDiv.innerHTML = tasks.map(task => `
+            <div class="task-card card mb-3">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h6 class="mb-1">${task.name}</h6>
+                            <small class="text-muted">${task.path}</small>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-link-45deg me-2 text-primary"></i>
+                                <span class="text-truncate" style="max-width: 200px;" title="${task.url || '未知URL'}">
+                                    ${task.url || '未知URL'}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2 text-end">
+                            <div class="d-flex flex-column">
+                                <span class="badge bg-success mb-1">
+                                    <i class="bi bi-check-circle me-1"></i>
+                                    已下载: ${task.downloaded}
+                                </span>
+                                <span class="badge bg-warning">
+                                    <i class="bi bi-clock me-1"></i>
+                                    待下载: ${task.pending}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar" 
+                                 style="width: ${task.total > 0 ? (task.downloaded / task.total * 100) : 0}%"
+                                 title="完成进度: ${task.total > 0 ? Math.round(task.downloaded / task.total * 100) : 0}%">
+                            </div>
+                        </div>
+                        <small class="text-muted">
+                            总计: ${task.total} 个视频 
+                            (完成: ${task.downloaded}, 待下载: ${task.pending})
+                        </small>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        resultsDiv.style.display = 'block';
+        
+        // 滚动到结果区域
+        resultsDiv.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    // 页面加载时自动扫描
+    document.addEventListener('DOMContentLoaded', function() {
+        loadUpdateConfigs();
+        
+        // 延迟一秒后自动扫描，给用户时间看到页面
+        setTimeout(function() {
+            const outputDir = document.getElementById('update_output_dir').value;
+            if (outputDir.trim()) {
+                scanTasks();
+            }
+        }, 1000);
+    });
+</script>
+{% endblock %} 

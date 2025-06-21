@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block title %}配置管理 - BiliSyncer WebUI{% endblock %}
+{% block page_title %}配置管理{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <!-- 配置列表 -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-gear me-2"></i>配置文件列表
+                </h5>
+                <button class="btn btn-primary btn-sm" onclick="createNewConfig()">
+                    <i class="bi bi-plus-circle me-1"></i>新建配置
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="configs-list">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- 配置说明 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-info-circle me-2"></i>配置说明
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li class="mb-2">
+                        <strong>name</strong>: 配置名称，用于识别
+                    </li>
+                    <li class="mb-2">
+                        <strong>output_dir</strong>: 默认输出目录
+                    </li>
+                    <li class="mb-2">
+                        <strong>sessdata</strong>: B站登录Cookie
+                    </li>
+                    <li class="mb-2">
+                        <strong>vip_strict</strong>: 是否启用VIP严格模式
+                    </li>
+                    <li class="mb-2">
+                        <strong>debug</strong>: 是否启用调试模式
+                    </li>
+                    <li class="mb-0">
+                        <strong>extra_args</strong>: 传递给yutto的额外参数
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- 使用方法 -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-terminal me-2"></i>使用方法
+                </h6>
+            </div>
+            <div class="card-body">
+                <p class="mb-2"><strong>命令行使用:</strong></p>
+                <code class="d-block mb-3">python main.py "url" --config 配置名</code>
+                
+                <p class="mb-2"><strong>WebUI使用:</strong></p>
+                <p class="mb-0 small text-muted">
+                    在下载管理和批量更新页面选择对应的配置文件即可
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 配置编辑模态框 -->
+<div class="modal fade" id="configModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="configModalTitle">编辑配置</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="config-form">
+                    <input type="hidden" id="config-filename" name="filename">
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="config-name" class="form-label">配置名称 *</label>
+                                <input type="text" class="form-control" id="config-name" name="name" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="config-description" class="form-label">描述</label>
+                                <input type="text" class="form-control" id="config-description" name="description">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="config-output-dir" class="form-label">输出目录 *</label>
+                        <input type="text" class="form-control" id="config-output-dir" name="output_dir" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="config-sessdata" class="form-label">SESSDATA Cookie</label>
+                        <input type="password" class="form-control" id="config-sessdata" name="sessdata">
+                        <div class="form-text">B站登录后的SESSDATA值</div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="config-vip-strict" name="vip_strict">
+                                <label class="form-check-label" for="config-vip-strict">
+                                    VIP严格模式
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="config-debug" name="debug">
+                                <label class="form-check-label" for="config-debug">
+                                    调试模式
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="config-extra-args" class="form-label">额外参数</label>
+                        <textarea class="form-control" id="config-extra-args" name="extra_args" rows="3" 
+                                  placeholder='每行一个参数，例如：&#10;--quality&#10;8K'></textarea>
+                        <div class="form-text">传递给yutto命令的额外参数，每行一个</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="delete-config-btn" onclick="deleteCurrentConfig()" style="display: none;">
+                    <i class="bi bi-trash me-1"></i>删除
+                </button>
+                <button type="button" class="btn btn-primary" onclick="saveConfig()">
+                    <i class="bi bi-check-circle me-1"></i>保存
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentConfigs = [];
+    let editingConfig = null;
+    
+    function loadConfigs() {
+        fetch('/api/configs')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentConfigs = data.configs;
+                    displayConfigs(data.configs);
+                } else {
+                    showAlert('danger', '加载配置失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                showAlert('danger', '加载配置失败: ' + error.message);
+            });
+    }
+    
+    function displayConfigs(configs) {
+        const container = document.getElementById('configs-list');
+        
+        if (configs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="bi bi-gear display-4 text-muted"></i>
+                    <p class="text-muted mt-2">暂无配置文件</p>
+                    <button class="btn btn-primary" onclick="createNewConfig()">
+                        <i class="bi bi-plus-circle me-1"></i>创建第一个配置
+                    </button>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = configs.map(config => `
+            <div class="config-item card mb-3">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h6 class="mb-1">${config.name}</h6>
+                            <small class="text-muted">${config.description || '无描述'}</small>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted">
+                                <i class="bi bi-folder me-1"></i>${config.output_dir}<br>
+                                <i class="bi bi-calendar me-1"></i>${config.updated_at || '未知'}
+                            </small>
+                        </div>
+                        <div class="col-md-2 text-end">
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-outline-primary" onclick="editConfig('${config.filename}')">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                ${config.filename !== 'default' ? `
+                                    <button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteConfig('${config.filename}', '${config.name}')">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <span class="badge bg-${config.vip_strict ? 'warning' : 'secondary'} me-1">
+                            ${config.vip_strict ? 'VIP模式' : '普通模式'}
+                        </span>
+                        <span class="badge bg-${config.debug ? 'info' : 'secondary'} me-1">
+                            ${config.debug ? '调试模式' : '正常模式'}
+                        </span>
+                        ${config.sessdata ? '<span class="badge bg-success me-1">已配置Cookie</span>' : ''}
+                        ${config.extra_args && config.extra_args.length > 0 ? '<span class="badge bg-primary me-1">有额外参数</span>' : ''}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    function createNewConfig() {
+        editingConfig = null;
+        document.getElementById('configModalTitle').textContent = '新建配置';
+        document.getElementById('delete-config-btn').style.display = 'none';
+        
+        // 清空表单
+        const form = document.getElementById('config-form');
+        form.reset();
+        document.getElementById('config-output-dir').value = '~/Downloads';
+        
+        new bootstrap.Modal(document.getElementById('configModal')).show();
+    }
+    
+    function editConfig(filename) {
+        const config = currentConfigs.find(c => c.filename === filename);
+        if (!config) return;
+        
+        editingConfig = filename;
+        document.getElementById('configModalTitle').textContent = '编辑配置';
+        
+        // 默认配置不显示删除按钮
+        if (filename === 'default') {
+            document.getElementById('delete-config-btn').style.display = 'none';
+        } else {
+            document.getElementById('delete-config-btn').style.display = 'inline-block';
+        }
+        
+        // 填充表单
+        document.getElementById('config-filename').value = filename;
+        document.getElementById('config-name').value = config.name || '';
+        document.getElementById('config-description').value = config.description || '';
+        document.getElementById('config-output-dir').value = config.output_dir || '';
+        document.getElementById('config-sessdata').value = config.sessdata || '';
+        document.getElementById('config-vip-strict').checked = config.vip_strict || false;
+        document.getElementById('config-debug').checked = config.debug || false;
+        
+        // 处理额外参数
+        const extraArgs = config.extra_args || [];
+        document.getElementById('config-extra-args').value = extraArgs.join('\n');
+        
+        new bootstrap.Modal(document.getElementById('configModal')).show();
+    }
+    
+    function saveConfig() {
+        const form = document.getElementById('config-form');
+        const formData = new FormData(form);
+        
+        // 处理额外参数
+        const extraArgsText = document.getElementById('config-extra-args').value;
+        const extraArgs = extraArgsText.split('\n').filter(arg => arg.trim()).map(arg => arg.trim());
+        
+        const configData = {
+            name: formData.get('name'),
+            description: formData.get('description'),
+            output_dir: formData.get('output_dir'),
+            sessdata: formData.get('sessdata'),
+            vip_strict: document.getElementById('config-vip-strict').checked,
+            debug: document.getElementById('config-debug').checked,
+            extra_args: extraArgs
+        };
+        
+        // 确定文件名
+        let filename = editingConfig || configData.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        
+        fetch(`/api/config/${filename}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(configData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('success', data.message);
+                bootstrap.Modal.getInstance(document.getElementById('configModal')).hide();
+                loadConfigs();
+            } else {
+                if (data.errors) {
+                    showAlert('danger', '验证失败: ' + data.errors.join(', '));
+                } else {
+                    showAlert('danger', data.message);
+                }
+            }
+        })
+        .catch(error => {
+            showAlert('danger', '保存失败: ' + error.message);
+        });
+    }
+    
+    function confirmDeleteConfig(filename, name) {
+        if (confirm(`确定要删除配置文件 "${name}" 吗？此操作不可撤销。`)) {
+            deleteConfig(filename);
+        }
+    }
+    
+    function deleteCurrentConfig() {
+        if (editingConfig && confirm('确定要删除当前配置吗？此操作不可撤销。')) {
+            deleteConfig(editingConfig);
+        }
+    }
+    
+    function deleteConfig(filename) {
+        fetch(`/api/config/${filename}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('success', data.message);
+                bootstrap.Modal.getInstance(document.getElementById('configModal'))?.hide();
+                loadConfigs();
+            } else {
+                showAlert('danger', data.message);
+            }
+        })
+        .catch(error => {
+            showAlert('danger', '删除失败: ' + error.message);
+        });
+    }
+    
+    // 页面加载时加载配置
+    document.addEventListener('DOMContentLoaded', function() {
+        loadConfigs();
+    });
+</script>
+{% endblock %} 
