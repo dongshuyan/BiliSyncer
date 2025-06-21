@@ -1,107 +1,127 @@
 # BiliSyncer
 
-🎯 **智能的B站内容同步工具** - 批量下载、断点续传、增量更新
+🎯 **Intelligent Bilibili Content Synchronization Tool** - Batch download, resume support, and incremental updates
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![WebUI](https://img.shields.io/badge/WebUI-Available-brightgreen.svg)](webui)
 
-## 🌟 项目简介
+[🇨🇳 中文文档](README_ZH.md) | 🇺🇸 English
 
-BiliSyncer 是一个专业的B站内容同步工具，专注于批量下载和智能管理。基于 `yutto` 构建，提供完整的批量下载解决方案，支持断点续传、增量更新和Web界面管理。
+## 🌟 Project Overview
 
-## ✨ 核心特性
+BiliSyncer is a professional Bilibili content synchronization tool focused on batch downloading and intelligent management. Built on top of `yutto`, it provides a complete batch download solution with support for resume downloads, incremental updates, and web interface management.
 
-### 📺 全面的内容支持
-- **投稿视频** - 支持单个视频或完整系列
-- **番剧电影** - 自动获取所有集数
-- **收藏夹** - 批量下载收藏内容
-- **用户空间** - UP主全部作品
-- **课程内容** - B站付费课程
-- **视频合集** - 完整的视频系列
+## ✨ Core Features
 
-### 🔄 智能同步机制
-- **断点续传** - 自动恢复中断的下载
-- **增量更新** - 只下载新增内容
-- **状态跟踪** - CSV文件管理下载状态
-- **批量更新** - 一键更新所有任务
+### 📺 Comprehensive Content Support
+- **User Videos** - Single videos or complete series
+- **Anime & Movies** - Automatically fetch all episodes
+- **Favorites** - Batch download favorite collections
+- **User Space** - All works from uploaders
+- **Courses** - Bilibili paid courses
+- **Collections** - Complete video series
 
-### 🎨 用户体验
-- **Web界面** - 直观的图形化操作
-- **实时监控** - 下载进度实时显示
-- **配置管理** - 灵活的YAML配置系统
-- **多平台支持** - 跨平台兼容
+### 🔄 Intelligent Sync Mechanism
+- **Resume Downloads** - Automatically resume interrupted downloads
+- **Incremental Updates** - Download only new content
+- **Status Tracking** - CSV file-based download status management
+- **Batch Updates** - One-click update for all tasks
 
-## 🚀 快速开始
+### 🎨 User Experience
+- **Web Interface** - Intuitive graphical operations
+- **Real-time Monitoring** - Live download progress display
+- **Configuration Management** - Flexible YAML configuration system
+- **Cross-platform Support** - Compatible across platforms
 
-### 环境要求
+## 📱 Interface Preview
+
+### Download Management
+![Download Management](pictures/example-1.png)
+*Main download interface with real-time progress tracking*
+
+### Batch Updates
+![Batch Updates](pictures/example-2.png)
+*Batch update interface for managing multiple download tasks*
+
+### Task Status
+![Task Status](pictures/example-3.png)
+*Comprehensive task status overview with detailed information*
+
+### Configuration Management
+![Configuration Management](pictures/example-4.png)
+*Easy-to-use configuration management interface*
+
+## 🚀 Quick Start
+
+### Requirements
 
 - Python 3.8+
-- yutto (原版B站下载工具)
+- yutto (Original Bilibili download tool)
 
-### 安装部署
+### Installation
 
 ```bash
-# 1. 安装依赖
+# 1. Install dependencies
 pip install yutto
 pip install -r requirements.txt
 
-# 2. 启动Web界面
+# 2. Start Web Interface
 python start_webui.py
 
-# 3. 或使用命令行
+# 3. Or use command line
 python main.py "https://www.bilibili.com/video/BV1xx411c7mD"
 ```
 
-### 基本使用
+### Basic Usage
 
-#### Web界面
-访问 `http://localhost:端口` 使用图形化界面进行批量下载和管理。
+#### Web Interface
+Visit `http://localhost:port` to use the graphical interface for batch downloading and management.
 
-#### 命令行界面
+#### Command Line Interface
 ```bash
-# 下载单个视频
+# Download single video
 python main.py "https://www.bilibili.com/video/BV1xx411c7mD"
 
-# 下载收藏夹
+# Download favorites
 python main.py "https://space.bilibili.com/123456/favlist?fid=789012" -c "SESSDATA"
 
-# 批量更新所有任务
+# Batch update all tasks
 python main.py --update -o "/path/to/downloads" -c "SESSDATA"
 
-# 使用配置文件
+# Use configuration file
 python main.py "URL" --config default
 ```
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```
 BiliSyncer/
-├── main.py              # 命令行入口
-├── start_webui.py       # Web界面启动器
-├── batch_downloader.py  # 批量下载引擎
-├── extractors.py        # URL解析器
-├── config/              # 配置文件
-│   ├── default.yaml     # 默认配置
-│   └── vip.yaml         # VIP配置示例
-├── utils/               # 工具模块
-│   ├── csv_manager.py   # 状态管理
-│   ├── logger.py        # 日志系统
-│   └── config_manager.py # 配置管理
-├── webui/               # Web界面
-│   ├── app.py           # Flask应用
-│   ├── templates/       # 模板文件
-│   └── static/          # 静态资源
-└── api/                 # API接口
-    └── bilibili.py      # B站API
+├── main.py              # Command line entry point
+├── start_webui.py       # Web interface launcher
+├── batch_downloader.py  # Batch download engine
+├── extractors.py        # URL parser
+├── config/              # Configuration files
+│   ├── default.yaml     # Default configuration
+│   └── vip.yaml         # VIP configuration example
+├── utils/               # Utility modules
+│   ├── csv_manager.py   # Status management
+│   ├── logger.py        # Logging system
+│   └── config_manager.py # Configuration management
+├── webui/               # Web interface
+│   ├── app.py           # Flask application
+│   ├── templates/       # Template files
+│   └── static/          # Static resources
+└── api/                 # API interfaces
+    └── bilibili.py      # Bilibili API
 ```
 
-## 🔧 配置说明
+## 🔧 Configuration
 
-### 配置文件格式
+### Configuration File Format
 ```yaml
-name: "配置名称"
-description: "配置描述"
+name: "Configuration Name"
+description: "Configuration Description"
 output_dir: "~/Downloads"
 sessdata: "your_sessdata_here"
 vip_strict: true
@@ -109,61 +129,61 @@ debug: false
 extra_args: ["--quality", "8K"]
 ```
 
-### 获取SESSDATA
-1. 登录 bilibili.com
-2. 打开开发者工具 (F12)
-3. 转到 Application → Cookies
-4. 复制 `SESSDATA` 的值
+### Getting SESSDATA
+1. Login to bilibili.com
+2. Open Developer Tools (F12)
+3. Go to Application → Cookies
+4. Copy the value of `SESSDATA`
 
-## 🎯 使用场景
+## 🎯 Use Cases
 
-- **内容创作者** - 备份自己的作品
-- **学习资料** - 下载课程和教程
-- **收藏管理** - 批量下载收藏夹内容
-- **追番追剧** - 自动更新番剧内容
-- **资料整理** - 系统化管理视频资源
+- **Content Creators** - Backup your own works
+- **Learning Materials** - Download courses and tutorials
+- **Collection Management** - Batch download favorite collections
+- **Series Following** - Automatically update anime/series content
+- **Resource Organization** - Systematically manage video resources
 
-## 🔄 更新机制
+## 🔄 Update Mechanism
 
-BiliSyncer 的智能更新机制：
-1. **状态检测** - 扫描已下载内容
-2. **内容对比** - 检查是否有新增视频
-3. **增量下载** - 只下载新的内容
-4. **状态同步** - 更新下载记录
+BiliSyncer's intelligent update mechanism:
+1. **Status Detection** - Scan downloaded content
+2. **Content Comparison** - Check for new videos
+3. **Incremental Download** - Download only new content
+4. **Status Sync** - Update download records
 
-## 🛠️ 技术栈
+## 🛠️ Tech Stack
 
-- **核心** - Python 3.8+
-- **下载引擎** - yutto
-- **Web框架** - Flask + SocketIO
-- **前端** - Bootstrap 5
-- **配置管理** - PyYAML
-- **异步处理** - asyncio
+- **Core** - Python 3.8+
+- **Download Engine** - yutto
+- **Web Framework** - Flask + SocketIO
+- **Frontend** - Bootstrap 5
+- **Configuration** - PyYAML
+- **Async Processing** - asyncio
 
-## 📊 性能特点
+## 📊 Performance Features
 
-- **并发处理** - 支持多任务并行
-- **内存优化** - 低内存占用
-- **网络优化** - 智能重试机制
-- **存储优化** - 避免重复下载
+- **Concurrent Processing** - Multi-task parallel support
+- **Memory Optimization** - Low memory footprint
+- **Network Optimization** - Intelligent retry mechanism
+- **Storage Optimization** - Avoid duplicate downloads
 
-## 🤝 贡献指南
+## 🤝 Contributing
 
-欢迎提交Issue和Pull Request。请确保：
-- 遵循现有代码风格
-- 添加适当的测试
-- 更新相关文档
+We welcome Issues and Pull Requests. Please ensure:
+- Follow existing code style
+- Add appropriate tests
+- Update relevant documentation
 
-## 📜 许可证
+## 📜 License
 
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
 
-## 🙋‍♂️ 支持与反馈
+## 🙋‍♂️ Support & Feedback
 
-如有问题或建议，请通过以下方式联系：
-- 提交 [Issue](issues)
-- 发起 [Discussion](discussions)
+For questions or suggestions, please contact us through:
+- Submit an [Issue](issues)
+- Start a [Discussion](discussions)
 
 ---
 
-⭐ 如果这个项目对你有帮助，请给个Star支持一下！ 
+⭐ If this project helps you, please give it a Star! 
