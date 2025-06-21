@@ -9,12 +9,14 @@ import shutil
 import glob
 from pathlib import Path
 from typing import Optional, List, Dict
+import re
 
 from utils.types import VideoListData, VideoInfo, DownloadOptions, AId, BvId, CId
 from utils.fetcher import Fetcher
 from utils.logger import Logger
 from utils.csv_manager import CSVManager
 from extractors import extract_video_list
+from api.bilibili import get_ugc_video_list
 
 
 class BatchDownloader:
@@ -196,7 +198,7 @@ class BatchDownloader:
                 yutto_cmd.extend(self.extra_args)
                 
                 # 调用之前的单视频下载方法
-                await self._download_single_video(video, output_dir)
+                await self._download_single_video(video, self.task_id, output_dir)
                 
                 # 更新CSV文件中的下载状态
                 if self.csv_manager:
@@ -284,16 +286,109 @@ class BatchDownloader:
         invalid_chars = '<>:"/\\|?*'
         for char in invalid_chars:
             filename = filename.replace(char, '_')
-        return filename.strip()
+        
+        # 处理多个连续的空格，替换为单个空格
+        filename = re.sub(r'\s+', ' ', filename)
+        
+        # 移除首尾空格
+        filename = filename.strip()
+        
+        # 处理可能的空文件名
+        if not filename:
+            filename = "未命名视频"
+        
+        # 如果文件名过长，截断但保留扩展名
+        if len(filename) > 100:
+            filename = filename[:100] + "..."
+            
+        return filename
     
-    async def _download_single_video(self, video: VideoInfo, output_dir: Path) -> None:
-        """调用原版yutto下载单个视频"""
+    async def _download_single_video(self, video, task_id, output_dir):
+        """下载单个视频"""
+        avid = video["avid"]
+        video_url = avid.to_url()
+        
+        # 检查是否需要停止
+        if self._should_stop():
+            Logger.info(f"任务 {task_id} 收到停止信号，跳过视频 {avid}")
+            return False
+        
+        # 检查CSV管理器是否可用
+        if not self.csv_manager:
+            Logger.warning("CSV管理器未初始化，无法检查下载状态")
+            return False
+        
+        # 检查视频是否已下载或不可访问
+        pending_videos = self.csv_manager.get_pending_videos()
+        if pending_videos is None:
+            pending_videos = []
+        video_urls_pending = [v['video_url'] for v in pending_videos]
+        
+        if video_url not in video_urls_pending:
+            Logger.info(f"视频 {avid} 已下载，跳过")
+            return True
+        
+        # 如果状态为pending，需要获取详细信息
+        if video.get("status") == "pending":
+            Logger.info(f"获取视频 {avid} 的详细信息...")
+            try:
+                fetcher = Fetcher()
+                detailed_video_data = await get_ugc_video_list(fetcher, avid)
+                
+                # 更新视频信息
+                if detailed_video_data and detailed_video_data.get("videos"):
+                    detailed_video = detailed_video_data["videos"][0]
+                    # 更新详细信息
+                    video.update({
+                        "cid": detailed_video["cid"],
+                        "path": detailed_video["path"],
+                        "status": "ready"
+                    })
+                    
+                    # 立即更新CSV文件中的详细信息
+                    self.csv_manager.update_video_info(video_url, {
+                        "cid": str(detailed_video["cid"]),
+                        "download_path": str(detailed_video["path"]),
+                        "status": "ready"
+                    })
+                    
+                    Logger.info(f"已获取并保存视频 {avid} 的详细信息")
+                else:
+                    raise Exception("无法获取视频详细信息")
+                    
+            except Exception as e:
+                error_msg = str(e)
+                Logger.error(f"获取视频 {avid} 详细信息失败: {e}")
+                
+                # 检查是否为永久性错误
+                permanent_errors = ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]
+                if any(keyword in error_msg for keyword in permanent_errors):
+                    Logger.warning(f"视频 {avid} 不可访问，标记为已处理")
+                    video["status"] = "unavailable"
+                    self.csv_manager.mark_video_downloaded(video_url)
+                    return True
+                else:
+                    Logger.warning(f"视频 {avid} 获取失败，跳过此次下载")
+                    return False
+        
+        # 如果是不可访问的视频，跳过
+        if video.get("status") == "unavailable":
+            Logger.info(f"视频 {avid} 不可访问，跳过")
+            return True
+        
+        # 检查是否需要停止（下载前再次检查）
+        if self._should_stop():
+            Logger.info(f"任务 {task_id} 收到停止信号，跳过视频 {avid}")
+            return False
+        
+        # 构建yutto命令
+        video_path = video.get('path', f"{avid}")
+        video_cid = video.get('cid', CId("0"))
         
         # 构建yutto命令
         yutto_cmd = ["yutto"]
         
         # 视频URL
-        video_url = str(video['avid'].to_url())
         yutto_cmd.append(video_url)
         
         # 输出目录 - 使用视频标题创建子目录
@@ -362,6 +457,11 @@ class BatchDownloader:
             
             if return_code != 0:
                 raise Exception(f"yutto下载失败，返回码: {return_code}")
+            
+            # 下载成功，标记为已下载
+            self.csv_manager.mark_video_downloaded(video_url)
+            Logger.info(f"视频 {avid} 下载完成并已更新状态")
+            return True
                 
         except Exception as e:
             Logger.error(f"调用yutto失败: {e}")

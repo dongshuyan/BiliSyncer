@@ -91,6 +91,11 @@ class CSVManager:
                     else:
                         pubdate_str = "未知"
                     
+                    # 处理cid字段 - 如果是占位符则保存为空
+                    cid_value = video.get('cid', '')
+                    if str(cid_value) == "0":
+                        cid_value = ""
+                    
                     # 对于不可访问的视频，直接标记为已下载
                     is_unavailable = video.get('status') == 'unavailable'
                     writer.writerow({
@@ -100,7 +105,7 @@ class CSVManager:
                         'download_path': str(video['path']),
                         'downloaded': 'True' if is_unavailable else 'False',
                         'avid': str(video['avid']),
-                        'cid': str(video['cid']),
+                        'cid': str(cid_value),
                         'pubdate': pubdate_str,
                         'status': video.get('status', 'normal')
                     })
@@ -158,6 +163,11 @@ class CSVManager:
                     else:
                         pubdate_str = "未知"
                     
+                    # 处理cid字段 - 如果是占位符则保存为空
+                    cid_value = video.get('cid', '')
+                    if str(cid_value) == "0":
+                        cid_value = ""
+                    
                     # 对于不可访问的视频，直接标记为已下载
                     is_unavailable = video.get('status') == 'unavailable'
                     merged_videos.append({
@@ -167,7 +177,7 @@ class CSVManager:
                         'download_path': str(video['path']),
                         'downloaded': 'True' if is_unavailable else 'False',
                         'avid': str(video['avid']),
-                        'cid': str(video['cid']),
+                        'cid': str(cid_value),
                         'pubdate': pubdate_str,
                         'status': video.get('status', 'normal')
                     })
@@ -343,4 +353,68 @@ class CSVManager:
             
         except Exception as e:
             Logger.error(f"读取原始URL失败: {e}")
-            return None 
+            return None
+    
+    def update_video_info(self, video_url: str, updated_info: Dict[str, str]) -> None:
+        """更新视频的详细信息"""
+        current_csv = self._find_latest_csv()
+        
+        if current_csv is None:
+            Logger.warning("未找到CSV文件，无法更新视频信息")
+            return
+        
+        try:
+            # 智能检测文件编码
+            encoding = self._detect_csv_encoding(current_csv)
+            
+            # 读取现有数据
+            videos = []
+            url_line = None
+            with open(current_csv, 'r', encoding=encoding) as f:
+                # 检查第一行是否为原始URL
+                first_line = f.readline()
+                if first_line.startswith("# Original URL:"):
+                    url_line = first_line
+                else:
+                    # 如果第一行不是URL，重新回到文件开头
+                    f.seek(0)
+                
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row['video_url'] == video_url:
+                        # 更新视频信息
+                        row.update(updated_info)
+                    videos.append(row)
+            
+            # 生成新的CSV文件名
+            new_csv_filename = self._generate_csv_filename()
+            new_csv_path = self.task_dir / new_csv_filename
+            temp_path = self.task_dir / f"temp_{new_csv_filename}"
+            
+            # 先写入临时文件，使用UTF-8-BOM编码确保Excel正确识别
+            with open(temp_path, 'w', newline='', encoding='utf-8-sig') as f:
+                # 写入原始URL行（如果存在）
+                if url_line:
+                    f.write(url_line)
+                
+                if videos:
+                    writer = csv.DictWriter(f, fieldnames=videos[0].keys())
+                    writer.writeheader()
+                    writer.writerows(videos)
+            
+            # 验证写入成功后，替换文件
+            shutil.move(str(temp_path), str(new_csv_path))
+            
+            # 删除旧的CSV文件
+            if current_csv != new_csv_path:
+                current_csv.unlink()
+                Logger.debug(f"已删除旧CSV文件: {current_csv.name}")
+            
+            Logger.debug(f"已更新视频信息: {video_url}")
+            
+        except Exception as e:
+            # 清理临时文件
+            temp_path = self.task_dir / f"temp_{self._generate_csv_filename()}"
+            if temp_path.exists():
+                temp_path.unlink()
+            Logger.error(f"更新视频信息失败: {e}") 

@@ -120,23 +120,33 @@ async def get_favourite_info(fetcher: Fetcher, fid: FId) -> Dict[str, Any]:
     return res_json["data"]
 
 
-async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[AvId]:
-    """获取收藏夹视频ID列表"""
-    api = f"https://api.bilibili.com/x/v3/fav/resource/ids?media_id={fid}"
+async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[Dict[str, Any]]:
+    """获取收藏夹视频列表（包含基本信息）"""
+    api = f"https://api.bilibili.com/x/v3/fav/resource/list?media_id={fid}&pn=1&ps=20"
     res_json = await fetcher.fetch_json(api)
     
     if not res_json or res_json.get("code") != 0:
         raise Exception(f"无法获取收藏夹 {fid} 视频列表")
     
-    return [BvId(video_info["bvid"]) for video_info in res_json["data"]]
+    videos = []
+    for video_info in res_json["data"]["medias"] or []:
+        videos.append({
+            "avid": BvId(video_info["bvid"]),
+            "title": video_info.get("title", ""),
+            "pubdate": video_info.get("pubtime", 0),
+            "duration": video_info.get("duration", 0),
+            "author": video_info.get("upper", {}).get("name", "")
+        })
+    
+    return videos
 
 
-async def get_user_space_videos(fetcher: Fetcher, mid: MId, max_pages: int = 5) -> List[AvId]:
-    """获取用户空间视频列表"""
+async def get_user_space_videos(fetcher: Fetcher, mid: MId, max_pages: int = 5) -> List[Dict[str, Any]]:
+    """获取用户空间视频列表（包含基本信息）"""
     api = "https://api.bilibili.com/x/space/wbi/arc/search"
     ps = 30  # 每页数量
     pn = 1
-    all_avids = []
+    all_videos = []
     
     while pn <= max_pages:
         params = {
@@ -155,31 +165,48 @@ async def get_user_space_videos(fetcher: Fetcher, mid: MId, max_pages: int = 5) 
         if not vlist:
             break
         
-        all_avids.extend([BvId(video["bvid"]) for video in vlist])
+        for video in vlist:
+            all_videos.append({
+                "avid": BvId(video["bvid"]),
+                "title": video.get("title", ""),
+                "pubdate": video.get("created", 0),
+                "duration": video.get("length", ""),
+                "author": video.get("author", "")
+            })
         
         # 检查是否还有更多页面
         total_count = res_json["data"]["page"]["count"]
-        if len(all_avids) >= total_count:
+        if len(all_videos) >= total_count:
             break
         
         pn += 1
     
-    return all_avids
+    return all_videos
 
 
-async def get_series_videos(fetcher: Fetcher, series_id: SeriesId, mid: MId) -> List[AvId]:
-    """获取视频列表/合集视频"""
+async def get_series_videos(fetcher: Fetcher, series_id: SeriesId, mid: MId) -> List[Dict[str, Any]]:
+    """获取视频列表/合集视频（包含基本信息）"""
     api = f"https://api.bilibili.com/x/series/archives?mid={mid}&series_id={series_id}&only_normal=true&pn=1&ps=30"
     res_json = await fetcher.fetch_json(api)
     
     if not res_json or res_json.get("code") != 0:
         raise Exception(f"无法获取视频列表 {series_id}")
     
-    return [BvId(video["bvid"]) for video in res_json["data"]["archives"]]
+    videos = []
+    for video in res_json["data"]["archives"]:
+        videos.append({
+            "avid": BvId(video["bvid"]),
+            "title": video.get("title", ""),
+            "pubdate": video.get("pubdate", 0),
+            "duration": video.get("duration", 0),
+            "author": video.get("owner", {}).get("name", "")
+        })
+    
+    return videos
 
 
-async def get_watch_later_avids(fetcher: Fetcher) -> List[AvId]:
-    """获取稍后再看列表"""
+async def get_watch_later_avids(fetcher: Fetcher) -> List[Dict[str, Any]]:
+    """获取稍后再看列表（包含基本信息）"""
     api = "https://api.bilibili.com/x/v2/history/toview/web"
     res_json = await fetcher.fetch_json(api)
     
@@ -192,4 +219,14 @@ async def get_watch_later_avids(fetcher: Fetcher) -> List[AvId]:
     if res_json.get("code") != 0:
         raise Exception(f"获取稍后再看列表失败: {res_json.get('message')}")
     
-    return [BvId(video["bvid"]) for video in res_json["data"]["list"]] 
+    videos = []
+    for video in res_json["data"]["list"]:
+        videos.append({
+            "avid": BvId(video["bvid"]),
+            "title": video.get("title", ""),
+            "pubdate": video.get("pubdate", 0),
+            "duration": video.get("duration", 0),
+            "author": video.get("owner", {}).get("name", "")
+        })
+    
+    return videos 
