@@ -10,180 +10,118 @@
 
 ## 🌟 项目简介
 
-BiliSyncer 是一个专业的B站内容同步工具，专注于批量下载和智能管理。基于 `yutto` 构建，提供完整的批量下载解决方案，支持断点续传、增量更新和Web界面管理。
+BiliSyncer 是一个专业的B站内容管理工具，在 yutto 基础上扩展了先进的批量下载、智能同步和Web管理功能。完美适合内容创作者、教育工作者和媒体爱好者进行系统化内容管理。
 
 ## ✨ 核心特性
 
-### 📺 全面的内容支持
-- **投稿视频** - 支持单个视频或完整系列
-- **番剧电影** - 自动获取所有集数
-- **收藏夹** - 批量下载收藏内容
-- **用户空间** - UP主全部作品
-- **课程内容** - B站付费课程
-- **视频合集** - 完整的视频系列
-
-### 🔄 智能同步机制
+### 🔄 智能同步系统
+- **批量下载** - 同时处理多个URL
 - **断点续传** - 自动恢复中断的下载
-- **增量更新** - 只下载新增内容
-- **状态跟踪** - CSV文件管理下载状态
-- **批量更新** - 一键更新所有任务
+- **增量更新** - 仅下载上次同步后的新内容
+- **智能状态跟踪** - CSV文件管理进度
 
-### 🎨 用户体验
-- **Web界面** - 直观的图形化操作
-- **实时监控** - 下载进度实时显示
-- **配置管理** - 灵活的YAML配置系统
-- **多平台支持** - 跨平台兼容
+### 📺 全面内容支持
+- 投稿视频&系列 | 番剧&电影 | 收藏夹&合集
+- 用户空间 | 课程 | 播放列表 | 稍后再看
+
+### 🎨 现代Web界面
+- 实时进度监控 | 任务管理面板
+- 配置管理 | 一键批量操作
+
+### 🛡️ 稳定可靠
+- 高级重试机制 | 网络错误处理
+- 强制停止功能 | 跨平台兼容
+
+## 🆚 BiliSyncer vs Yutto
+
+| 功能特性 | BiliSyncer | Yutto |
+|---------|------------|-------|
+| **核心定位** | 批量同步&管理 | 单次/批量下载 |
+| **Web界面** | ✅ 完整功能GUI | ❌ 仅命令行 |
+| **断点续传** | ✅ 自动恢复 | ⚠️ 手动重试 |
+| **增量更新** | ✅ 智能检测同步 | ❌ 需完整重下 |
+| **状态跟踪** | ✅ CSV持久化管理 | ❌ 无状态记录 |
+| **批量管理** | ✅ 多任务仪表板 | ❌ 单任务焦点 |
+| **内容组织** | ✅ 自动文件夹结构 | ⚠️ 基础组织 |
+| **任务监控** | ✅ 实时进度显示 | ❌ 仅终端输出 |
+| **配置管理** | ✅ Web + YAML配置 | ⚠️ 仅命令参数 |
+| **更新工作流** | ✅ 一键批量更新 | ❌ 手动重执行 |
+
+**BiliSyncer = Yutto + 批量管理 + Web界面 + 同步智能**
 
 ## 📱 界面预览
 
 ### 下载管理
 ![下载管理](pictures/example-1.png)
-*主要下载界面，实时进度跟踪*
 
 ### 批量更新
 ![批量更新](pictures/example-2.png)
-*批量更新界面，管理多个下载任务*
 
 ### 任务状态
 ![任务状态](pictures/example-3.png)
-*完整的任务状态概览，详细信息显示*
 
 ### 配置管理
 ![配置管理](pictures/example-4.png)
-*易于使用的配置管理界面*
 
 ## 🚀 快速开始
 
-### 环境要求
-
-- Python 3.8+
-- yutto (原版B站下载工具)
-
-### 安装部署
-
+### 环境准备
 ```bash
-# 1. 安装依赖
+# 安装依赖
 pip install yutto
 pip install -r requirements.txt
-
-# 2. 启动Web界面
-python start_webui.py
-
-# 3. 或使用命令行
-python main.py "https://www.bilibili.com/video/BV1xx411c7mD"
 ```
 
-### 基本使用
-
-#### Web界面
-访问 `http://localhost:端口` 使用图形化界面进行批量下载和管理。
-
-#### 命令行界面
+### 启动Web界面
 ```bash
-# 下载单个视频
+python start_webui.py
+# 访问 http://localhost:5000
+```
+
+### 命令行使用
+```bash
+# 单次下载
 python main.py "https://www.bilibili.com/video/BV1xx411c7mD"
 
-# 下载收藏夹
-python main.py "https://space.bilibili.com/123456/favlist?fid=789012" -c "SESSDATA"
+# 批量更新所有配置任务
+python main.py --update -c "SESSDATA"
 
-# 批量更新所有任务
-python main.py --update -o "/path/to/downloads" -c "SESSDATA"
-
-# 使用配置文件
-python main.py "URL" --config default
-```
-
-## 📁 项目结构
-
-```
-BiliSyncer/
-├── main.py              # 命令行入口
-├── start_webui.py       # Web界面启动器
-├── batch_downloader.py  # 批量下载引擎
-├── extractors.py        # URL解析器
-├── config/              # 配置文件
-│   ├── default.yaml     # 默认配置
-│   └── vip.yaml         # VIP配置示例
-├── utils/               # 工具模块
-│   ├── csv_manager.py   # 状态管理
-│   ├── logger.py        # 日志系统
-│   └── config_manager.py # 配置管理
-├── webui/               # Web界面
-│   ├── app.py           # Flask应用
-│   ├── templates/       # 模板文件
-│   └── static/          # 静态资源
-└── api/                 # API接口
-    └── bilibili.py      # B站API
+# 使用自定义配置
+python main.py "URL" --config vip
 ```
 
 ## 🔧 配置说明
 
-### 配置文件格式
+创建 `config/your_config.yaml`：
 ```yaml
-name: "配置名称"
-description: "配置描述"
+name: "我的配置"
 output_dir: "~/Downloads"
 sessdata: "your_sessdata_here"
 vip_strict: true
-debug: false
 extra_args: ["--quality", "8K"]
 ```
 
-### 获取SESSDATA
-1. 登录 bilibili.com
-2. 打开开发者工具 (F12)
-3. 转到 Application → Cookies
-4. 复制 `SESSDATA` 的值
+**获取SESSDATA**：登录 bilibili.com → F12 → Application → Cookies → 复制 `SESSDATA` 值
 
-## 🎯 使用场景
+## 🎯 适用场景
 
-- **内容创作者** - 备份自己的作品
-- **学习资料** - 下载课程和教程
-- **收藏管理** - 批量下载收藏夹内容
-- **追番追剧** - 自动更新番剧内容
-- **资料整理** - 系统化管理视频资源
-
-## 🔄 更新机制
-
-BiliSyncer 的智能更新机制：
-1. **状态检测** - 扫描已下载内容
-2. **内容对比** - 检查是否有新增视频
-3. **增量下载** - 只下载新的内容
-4. **状态同步** - 更新下载记录
+- **内容创作者** - 备份和整理内容库
+- **教育工作者** - 下载课程资料和教育内容
+- **媒体收藏者** - 系统化管理番剧、剧集和收藏
+- **研究人员** - 批量下载参考资料
 
 ## 🛠️ 技术栈
 
-- **核心** - Python 3.8+
-- **下载引擎** - yutto
-- **Web框架** - Flask + SocketIO
-- **前端** - Bootstrap 5
-- **配置管理** - PyYAML
-- **异步处理** - asyncio
-
-## 📊 性能特点
-
-- **并发处理** - 支持多任务并行
-- **内存优化** - 低内存占用
-- **网络优化** - 智能重试机制
-- **存储优化** - 避免重复下载
+基于 Python 3.8+、Flask、yutto 和现代Web技术构建，确保可靠性和性能。
 
 ## 🤝 贡献指南
 
-欢迎提交Issue和Pull Request。请确保：
-- 遵循现有代码风格
-- 添加适当的测试
-- 更新相关文档
+欢迎贡献！提交 Issues 或 Pull Requests 来帮助改进 BiliSyncer。
 
 ## 📜 许可证
 
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
-
-## 🙋‍♂️ 支持与反馈
-
-如有问题或建议，请通过以下方式联系：
-- 提交 [Issue](issues)
-- 发起 [Discussion](discussions)
+MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
 
 ---
 
-⭐ 如果这个项目对你有帮助，请给个Star支持一下！ 
+⭐ **如果这个项目帮助你管理B站内容，请给个Star支持！** 

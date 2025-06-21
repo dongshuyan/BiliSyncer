@@ -351,25 +351,195 @@ async def get_user_space_videos(fetcher: Fetcher, mid: MId) -> List[AvId]:
     return all_avids
 
 
-async def get_user_name(fetcher: Fetcher, mid: MId) -> str:
-    """获取用户名（带重试机制）"""
-    Logger.info(f"获取用户 {mid} 的用户名...")
-    
-    max_retries = 10
-    base_delay = 2.0
+# WBI签名相关变量
+wbi_img_cache = None
+
+async def get_wbi_img(fetcher: Fetcher) -> Dict[str, str]:
+    """获取WBI签名所需的img_key和sub_key（带重试机制）"""
+    max_retries = 5
+    base_delay = 1.0
     
     for attempt in range(max_retries):
         try:
-            # 获取WBI签名信息
-            wbi_img = await get_wbi_img(fetcher)
+            # 先访问bilibili主页
+            await fetcher.get_redirected_url("https://www.bilibili.com")
             
-            # 构建参数
+            # 获取用户基本信息页面
+            api = "https://api.bilibili.com/x/web-interface/nav"
+            res_json = await fetcher.fetch_json(api)
+            
+            if not res_json or res_json.get("code") != 0:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (attempt + 1)
+                    Logger.warning(f"获取WBI签名信息失败 (尝试 {attempt + 1}/{max_retries})，{delay:.1f}秒后重试...")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    raise Exception(f"获取WBI签名信息失败: {res_json.get('message') if res_json else 'No response'}")
+            
+            # 提取wbi相关字段
+            data = res_json["data"]
+            wbi_img_data = data["wbi_img"]
+            img_url = wbi_img_data["img_url"]
+            sub_url = wbi_img_data["sub_url"]
+            
+            # 提取文件名（去掉路径和扩展名）
+            img_key = img_url.split("/")[-1].split(".")[0]
+            sub_key = sub_url.split("/")[-1].split(".")[0]
+            
+            Logger.debug(f"获取WBI签名密钥: img_key={img_key[:8]}..., sub_key={sub_key[:8]}...")
+            return {"img_key": img_key, "sub_key": sub_key}
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (attempt + 1)
+                Logger.warning(f"获取WBI签名信息异常 (尝试 {attempt + 1}/{max_retries}): {e}，{delay:.1f}秒后重试...")
+                await asyncio.sleep(delay)
+                continue
+            else:
+                Logger.error(f"获取WBI签名信息最终失败: {e}")
+                raise Exception(f"获取WBI签名信息最终失败: {e}")
+    
+    # 这行不应该被执行，但为了类型检查
+    raise Exception("获取WBI签名信息失败")
+
+
+async def get_wbi_img_yutto_style(fetcher: Fetcher) -> Dict[str, str]:
+    """获取WBI签名所需的img_key和sub_key（yutto风格，使用缓存机制）"""
+    global wbi_img_cache
+    if wbi_img_cache is not None:
+        return wbi_img_cache
+    
+    # 获取用户基本信息页面
+    api = "https://api.bilibili.com/x/web-interface/nav"
+    res_json = await fetcher.fetch_json(api)
+    
+    if not res_json:
+        raise Exception("获取WBI签名信息失败: 无响应")
+    
+    if res_json.get("code") != 0:
+        raise Exception(f"获取WBI签名信息失败: {res_json.get('message', 'Unknown error')}")
+    
+    # 提取wbi相关字段
+    data = res_json["data"]
+    wbi_img_data = data["wbi_img"]
+    img_url = wbi_img_data["img_url"]
+    sub_url = wbi_img_data["sub_url"]
+    
+    # 提取文件名（去掉路径和扩展名）
+    img_key = img_url.split("/")[-1].split(".")[0]
+    sub_key = sub_url.split("/")[-1].split(".")[0]
+    
+    wbi_img_cache = {"img_key": img_key, "sub_key": sub_key}
+    Logger.debug(f"获取WBI签名密钥(yutto风格): img_key={img_key[:8]}..., sub_key={sub_key[:8]}...")
+    return wbi_img_cache
+
+
+def _get_mixin_key(string: str) -> str:
+    """生成混合密钥"""
+    char_indices = [
+        46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5,
+        49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55,
+        40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57,
+        62, 11, 36, 20, 34, 44, 52,
+    ]
+    return "".join([string[idx] for idx in char_indices[:32] if idx < len(string)])
+
+
+def encode_wbi(params: Dict[str, Any], wbi_img: Dict[str, str]) -> Dict[str, Any]:
+    """WBI签名编码"""
+    import re
+    
+    img_key = wbi_img.get("img_key", "")
+    sub_key = wbi_img.get("sub_key", "")
+    
+    if not img_key or not sub_key:
+        Logger.warning("WBI密钥不完整，跳过签名")
+        return params
+    
+    illegal_char_remover = re.compile(r"[!'\(\)*]")
+    
+    mixin_key = _get_mixin_key(img_key + sub_key)
+    time_stamp = int(time.time())
+    params_with_wts = dict(params, wts=time_stamp)
+    
+    # URL编码并排序
+    url_encoded_params = urllib.parse.urlencode(
+        {
+            key: illegal_char_remover.sub("", str(params_with_wts[key]))
+            for key in sorted(params_with_wts.keys())
+        }
+    )
+    
+    # 计算w_rid
+    w_rid = hashlib.md5((url_encoded_params + mixin_key).encode()).hexdigest()
+    all_params = dict(params_with_wts, w_rid=w_rid)
+    return all_params
+
+
+def encode_wbi_yutto_style(params: Dict[str, Any], wbi_img: Dict[str, str]) -> Dict[str, Any]:
+    """WBI签名编码（yutto风格，包含dm参数）"""
+    import re
+    import base64
+    import random
+    import string
+    
+    img_key = wbi_img.get("img_key", "")
+    sub_key = wbi_img.get("sub_key", "")
+    
+    if not img_key or not sub_key:
+        Logger.warning("WBI密钥不完整，跳过签名")
+        return params
+    
+    illegal_char_remover = re.compile(r"[!'\(\)*]")
+    
+    mixin_key = _get_mixin_key(img_key + sub_key)
+    time_stamp = int(time.time())
+    params_with_wts = dict(params, wts=time_stamp)
+    
+    # 生成随机dm参数（模拟yutto的实现）
+    dm_img_str = base64.b64encode("".join(random.choices(string.printable, k=random.randint(16, 64))).encode())[:-2].decode()
+    dm_cover_img_str = base64.b64encode("".join(random.choices(string.printable, k=random.randint(32, 128))).encode())[:-2].decode()
+    
+    # 添加必要的参数
+    params_with_dm = {
+        **params_with_wts,
+        "dm_img_list": "[]",
+        "dm_img_str": dm_img_str,
+        "dm_cover_img_str": dm_cover_img_str,
+    }
+    
+    # URL编码并排序
+    url_encoded_params = urllib.parse.urlencode(
+        {
+            key: illegal_char_remover.sub("", str(params_with_dm[key]))
+            for key in sorted(params_with_dm.keys())
+        }
+    )
+    
+    # 计算w_rid
+    w_rid = hashlib.md5((url_encoded_params + mixin_key).encode()).hexdigest()
+    all_params = dict(params_with_dm, w_rid=w_rid)
+    return all_params
+
+
+async def get_user_name(fetcher: Fetcher, mid: MId) -> str:
+    """获取用户名（每轮尝试两种方法）"""
+    Logger.info(f"获取用户 {mid} 的用户名...")
+    
+    max_rounds = 30  # 30轮尝试
+    
+    for round_num in range(max_rounds):
+        round_start = round_num + 1
+        
+        # 第一次尝试：原有方法
+        try:
+            Logger.debug(f"第{round_start}轮-原有方法: 获取WBI签名...")
+            wbi_img = await get_wbi_img(fetcher)
             params = {"mid": str(mid)}
             signed_params = encode_wbi(params, wbi_img)
             
             space_info_api = "https://api.bilibili.com/x/space/wbi/acc/info"
-            
-            # 先访问bilibili主页
             await fetcher.get_redirected_url("https://www.bilibili.com")
             
             user_info = await fetcher.fetch_json(space_info_api, signed_params)
@@ -381,37 +551,65 @@ async def get_user_name(fetcher: Fetcher, mid: MId) -> str:
                 Logger.warning(f"用户 {mid} 不存在，疑似注销或被封禁")
                 return f"用户{mid}"
             elif user_info.get("code") == -352:
-                # 风控校验失败，需要重试
-                delay = base_delay * (2 ** attempt)  # 指数退避
-                Logger.warning(f"风控校验失败 (尝试 {attempt + 1}/{max_retries})，等待 {delay:.1f} 秒后重试...")
-                await asyncio.sleep(delay)
-                continue
+                # 风控校验失败，尝试yutto风格方法
+                Logger.warning(f"第{round_start}轮-原有方法: 风控校验失败，尝试yutto风格方法...")
+                raise Exception("风控校验失败")
             elif user_info.get("code") != 0:
                 error_msg = user_info.get('message', 'Unknown error')
-                Logger.warning(f"获取用户名失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
-                if attempt < max_retries - 1:
-                    delay = base_delay * (attempt + 1)
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    Logger.error(f"获取用户名最终失败: {error_msg}")
-                    return f"用户{mid}"
+                Logger.warning(f"第{round_start}轮-原有方法: API错误 {error_msg}，尝试yutto风格方法...")
+                raise Exception(f"API错误: {error_msg}")
             else:
                 # 成功获取用户信息
                 username = user_info.get("data", {}).get("name", f"用户{mid}")
-                Logger.info(f"用户 {mid} 的用户名: {username}")
+                Logger.info(f"用户 {mid} 的用户名: {username} (第{round_start}轮-原有方法成功)")
                 return username
                 
         except Exception as e:
-            Logger.warning(f"获取用户名异常 (尝试 {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                delay = base_delay * (attempt + 1)
-                await asyncio.sleep(delay)
-                continue
-            else:
-                Logger.error(f"获取用户名最终失败: {e}")
+            Logger.debug(f"第{round_start}轮-原有方法失败: {e}")
+        
+        # 第二次尝试：yutto风格方法
+        try:
+            Logger.debug(f"第{round_start}轮-yutto风格: 获取WBI签名...")
+            wbi_img = await get_wbi_img_yutto_style(fetcher)
+            params = {"mid": str(mid)}
+            signed_params = encode_wbi_yutto_style(params, wbi_img)
+            
+            space_info_api = "https://api.bilibili.com/x/space/wbi/acc/info"
+            await fetcher.touch_url("https://www.bilibili.com")
+            
+            user_info = await fetcher.fetch_json(space_info_api, signed_params)
+            
+            if not user_info:
+                raise Exception("无响应")
+            
+            if user_info.get("code") == -404:
+                Logger.warning(f"用户 {mid} 不存在，疑似注销或被封禁")
                 return f"用户{mid}"
+            elif user_info.get("code") == -352:
+                # 风控校验失败，准备下一轮
+                Logger.warning(f"第{round_start}轮-yutto风格: 风控校验失败，准备下一轮...")
+                raise Exception("风控校验失败")
+            elif user_info.get("code") != 0:
+                error_msg = user_info.get('message', 'Unknown error')
+                Logger.warning(f"第{round_start}轮-yutto风格: API错误 {error_msg}，准备下一轮...")
+                raise Exception(f"API错误: {error_msg}")
+            else:
+                # 成功获取用户信息
+                username = user_info.get("data", {}).get("name", f"用户{mid}")
+                Logger.info(f"用户 {mid} 的用户名: {username} (第{round_start}轮-yutto风格成功)")
+                return username
+                
+        except Exception as e:
+            Logger.debug(f"第{round_start}轮-yutto风格失败: {e}")
+        
+        # 本轮两种方法都失败，等待后进入下一轮
+        if round_num < max_rounds - 1:  # 不是最后一轮
+            delay = round_start * 1.0  # 每轮增加1秒
+            Logger.warning(f"第{round_start}轮失败，等待 {delay:.1f} 秒后进入下一轮...")
+            await asyncio.sleep(delay)
     
+    # 30轮都失败了
+    Logger.error(f"获取用户名最终失败，已尝试 {max_rounds} 轮")
     return f"用户{mid}"
 
 
@@ -469,109 +667,6 @@ async def get_season_id_by_episode_id(fetcher: Fetcher, episode_id: str) -> str:
     if not res_json or res_json.get("code") != 0:
         raise Exception(f"无法获取番剧信息，episode_id: {episode_id}")
     return str(res_json["result"]["season_id"])
-
-
-# WBI签名相关变量
-wbi_img_cache = None
-
-async def get_wbi_img(fetcher: Fetcher) -> Dict[str, str]:
-    """获取WBI签名所需的img_key和sub_key（带重试机制）"""
-    max_retries = 5
-    base_delay = 1.0
-    
-    for attempt in range(max_retries):
-        try:
-            # 先访问bilibili主页
-            await fetcher.get_redirected_url("https://www.bilibili.com")
-            
-            # 获取用户基本信息页面
-            api = "https://api.bilibili.com/x/web-interface/nav"
-            res_json = await fetcher.fetch_json(api)
-            
-            if not res_json or res_json.get("code") != 0:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (attempt + 1)
-                    Logger.warning(f"获取WBI签名信息失败 (尝试 {attempt + 1}/{max_retries})，{delay:.1f}秒后重试...")
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    raise Exception(f"获取WBI签名信息失败: {res_json.get('message') if res_json else 'No response'}")
-            
-            # 提取wbi相关字段
-            data = res_json["data"]
-            wbi_img_data = data["wbi_img"]
-            img_url = wbi_img_data["img_url"]
-            sub_url = wbi_img_data["sub_url"]
-            
-            # 提取文件名（去掉路径和扩展名）
-            img_key = img_url.split("/")[-1].split(".")[0]
-            sub_key = sub_url.split("/")[-1].split(".")[0]
-            
-            Logger.debug(f"获取WBI签名密钥: img_key={img_key[:8]}..., sub_key={sub_key[:8]}...")
-            return {"img_key": img_key, "sub_key": sub_key}
-            
-        except Exception as e:
-            if attempt < max_retries - 1:
-                delay = base_delay * (attempt + 1)
-                Logger.warning(f"获取WBI签名信息异常 (尝试 {attempt + 1}/{max_retries}): {e}，{delay:.1f}秒后重试...")
-                await asyncio.sleep(delay)
-                continue
-            else:
-                Logger.error(f"获取WBI签名信息最终失败: {e}")
-                raise Exception(f"获取WBI签名信息最终失败: {e}")
-    
-    # 这行不应该被执行，但为了类型检查
-    raise Exception("获取WBI签名信息失败")
-
-
-def _get_mixin_key(string: str) -> str:
-    """生成混合密钥"""
-    char_indices = [
-        46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5,
-        49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55,
-        40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57,
-        62, 11, 36, 20, 34, 44, 52,
-    ]
-    return "".join([string[idx] for idx in char_indices[:32] if idx < len(string)])
-
-
-def encode_wbi(params: Dict[str, Any], wbi_img: Dict[str, str]) -> Dict[str, Any]:
-    """WBI签名编码"""
-    import re
-    
-    img_key = wbi_img.get("img_key", "")
-    sub_key = wbi_img.get("sub_key", "")
-    
-    if not img_key or not sub_key:
-        Logger.warning("WBI密钥不完整，跳过签名")
-        return params
-    
-    illegal_char_remover = re.compile(r"[!'\(\)*]")
-    
-    mixin_key = _get_mixin_key(img_key + sub_key)
-    time_stamp = int(time.time())
-    params_with_wts = dict(params, wts=time_stamp)
-    
-    # 添加必要的参数
-    params_with_dm = {
-        **params_with_wts,
-        "dm_img_list": "[]",
-        "dm_img_str": "",
-        "dm_cover_img_str": "",
-    }
-    
-    # URL编码并排序
-    url_encoded_params = urllib.parse.urlencode(
-        {
-            key: illegal_char_remover.sub("", str(params_with_dm[key]))
-            for key in sorted(params_with_dm.keys())
-        }
-    )
-    
-    # 计算w_rid
-    w_rid = hashlib.md5((url_encoded_params + mixin_key).encode()).hexdigest()
-    all_params = dict(params_with_dm, w_rid=w_rid)
-    return all_params 
 
 
 async def get_bangumi_episode_list(fetcher: Fetcher, season_id: str) -> Tuple[str, List[str]]:
