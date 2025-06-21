@@ -1,11 +1,21 @@
 """
-URL提取器模块
+视频提取器模块
+用于从不同类型的B站URL中提取视频信息
 """
 
 import re
+import asyncio
+from pathlib import Path
+from typing import Dict, List, Any
+from utils.logger import Logger
+from utils.fetcher import Fetcher
+from api.bilibili import (
+    get_favourite_avids, get_favourite_info, get_user_space_videos,
+    get_series_videos, get_watch_later_avids, get_bangumi_list,
+    get_season_id_by_media_id, get_season_id_by_episode_id
+)
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
-from pathlib import Path
 
 from utils.types import *
 from utils.fetcher import Fetcher
@@ -67,7 +77,7 @@ class UgcVideoExtractor(URLExtractor):
 
 
 class BangumiExtractor(URLExtractor):
-    """番剧提取器"""
+    """番剧提取器（批量下载所有集数）"""
     
     REGEX_MD = re.compile(r"https?://www\.bilibili\.com/bangumi/media/md(?P<media_id>\d+)")
     REGEX_EP = re.compile(r"https?://www\.bilibili\.com/bangumi/play/ep(?P<episode_id>\d+)")
@@ -78,20 +88,44 @@ class BangumiExtractor(URLExtractor):
         return bool(self.REGEX_MD.match(url) or self.REGEX_EP.match(url) or self.REGEX_SS.match(url))
     
     async def extract(self, fetcher: Fetcher, url: str) -> VideoListData:
-        """提取番剧列表"""
-        if match_obj := self.REGEX_SS.match(url):
-            season_id = SeasonId(match_obj.group("season_id"))
+        """提取番剧视频列表"""
+        # 解析不同类型的URL获取season_id
+        season_id = await self._parse_season_id(fetcher, url)
+        Logger.info(f"提取番剧: {season_id}")
+        
+        # 获取番剧信息和剧集列表
+        bangumi_data = await get_bangumi_list(fetcher, season_id)
+        
+        videos = []
+        for page in bangumi_data["pages"]:
+            # 创建Video对象
+            video = {
+                "avid": page["avid"],
+                "cid": page["cid"],
+                "title": page["title"],
+                "name": page["name"],
+                "pubdate": page["pubdate"],
+                "author": page["author"],
+                "duration": page["duration"],
+                "path": Path(f"{bangumi_data['title']}/{page['name']}"),
+                "status": "ready"  # 番剧信息已完整，无需pending
+            }
+            videos.append(video)
+        
+        return {"title": bangumi_data["title"], "videos": videos}
+    
+    async def _parse_season_id(self, fetcher: Fetcher, url: str) -> str:
+        """根据URL类型获取season_id"""
+        if match_obj := self.REGEX_MD.match(url):
+            media_id = match_obj.group("media_id")
+            return await get_season_id_by_media_id(fetcher, media_id)
         elif match_obj := self.REGEX_EP.match(url):
-            episode_id = EpisodeId(match_obj.group("episode_id"))
-            season_id = await convert_episode_to_season(fetcher, episode_id)
-        elif match_obj := self.REGEX_MD.match(url):
-            media_id = MediaId(match_obj.group("media_id"))
-            season_id = await convert_media_to_season(fetcher, media_id)
+            episode_id = match_obj.group("episode_id")
+            return await get_season_id_by_episode_id(fetcher, episode_id)
+        elif match_obj := self.REGEX_SS.match(url):
+            return match_obj.group("season_id")
         else:
             raise ValueError(f"无法解析番剧URL: {url}")
-        
-        Logger.info(f"提取番剧: {season_id}")
-        return await get_bangumi_list(fetcher, season_id)
 
 
 class FavouriteExtractor(URLExtractor):
@@ -182,7 +216,7 @@ class SeriesExtractor(URLExtractor):
 class UserSpaceExtractor(URLExtractor):
     """用户空间提取器"""
     
-    REGEX_SPACE = re.compile(r"https?://space\.bilibili\.com/(?P<mid>\d+)(/video)?/?$")
+    REGEX_SPACE = re.compile(r"https?://space\.bilibili\.com/(?P<mid>\d+)(/video)?/?(?:\?.*)?")
     
     def match(self, url: str) -> bool:
         """检查URL是否匹配"""

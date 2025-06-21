@@ -67,24 +67,63 @@ async def get_bangumi_info(fetcher: Fetcher, season_id: SeasonId) -> Dict[str, A
     return res_json["data"]
 
 
-async def get_bangumi_list(fetcher: Fetcher, season_id: SeasonId) -> VideoListData:
+async def get_bangumi_list(fetcher: Fetcher, season_id: str) -> Dict[str, Any]:
     """获取番剧剧集列表"""
-    bangumi_info = await get_bangumi_info(fetcher, season_id)
-    title = bangumi_info["title"]
+    list_api = f"https://api.bilibili.com/pgc/view/web/season?season_id={season_id}"
+    resp_json = await fetcher.fetch_json(list_api)
     
-    videos = []
-    if "episodes" in bangumi_info:
-        for i, episode in enumerate(bangumi_info["episodes"]):
-            videos.append({
-                "id": i + 1,
-                "name": episode.get("long_title", episode.get("title", f"第{i+1}集")),
-                "avid": BvId(episode["bvid"]),
-                "cid": CId(str(episode["cid"])),
-                "title": title,
-                "path": Path(f"{title}/{episode.get('long_title', episode.get('title', f'第{i+1}集'))}")
-            })
+    if not resp_json:
+        raise Exception(f"无法解析该番剧列表，season_id: {season_id}")
+    if resp_json.get("result") is None:
+        raise Exception(f"无法解析该番剧列表，season_id: {season_id}，原因：{resp_json.get('message')}")
     
-    return {"title": title, "videos": videos}
+    result = resp_json["result"]
+    
+    # 处理专区内容
+    section_episodes = []
+    for section in result.get("section", []):
+        if section["type"] != 5:
+            section_episodes += section["episodes"]
+    
+    # 构建剧集列表
+    pages = []
+    all_episodes = result["episodes"] + section_episodes
+    
+    for i, item in enumerate(all_episodes):
+        episode_title = _bangumi_episode_title(item["title"], item["long_title"])
+        pages.append({
+            "id": i + 1,
+            "name": episode_title,
+            "cid": CId(str(item["cid"])),
+            "episode_id": str(item["id"]),
+            "avid": BvId(item["bvid"]),
+            "is_section": i >= len(result["episodes"]),
+            "is_preview": item.get("badge") == "预告",
+            "title": episode_title,
+            "pubdate": 0,  # 番剧没有pubdate概念
+            "author": result.get("actor", {}).get("info", ""),
+            "duration": 0  # 番剧duration需要从播放页面获取
+        })
+    
+    return {
+        "title": result["title"],
+        "pages": pages
+    }
+
+
+def _bangumi_episode_title(title: str, extra_title: str) -> str:
+    """格式化番剧剧集标题"""
+    title_parts = []
+    
+    if re.match(r"^\d*\.?\d*$", title):
+        title_parts.append(f"第{title}话")
+    else:
+        title_parts.append(title)
+    
+    if extra_title:
+        title_parts.append(extra_title)
+    
+    return " ".join(title_parts)
 
 
 async def convert_episode_to_season(fetcher: Fetcher, episode_id: EpisodeId) -> SeasonId:
@@ -251,4 +290,22 @@ async def get_watch_later_avids(fetcher: Fetcher) -> List[Dict[str, Any]]:
             "author": video.get("owner", {}).get("name", "")
         })
     
-    return videos 
+    return videos
+
+
+async def get_season_id_by_media_id(fetcher: Fetcher, media_id: str) -> str:
+    """通过media_id获取season_id"""
+    media_api = f"https://api.bilibili.com/pgc/review/user?media_id={media_id}"
+    res_json = await fetcher.fetch_json(media_api)
+    if not res_json or res_json.get("code") != 0:
+        raise Exception(f"无法获取番剧信息，media_id: {media_id}")
+    return str(res_json["result"]["media"]["season_id"])
+
+
+async def get_season_id_by_episode_id(fetcher: Fetcher, episode_id: str) -> str:
+    """通过episode_id获取season_id"""
+    episode_api = f"https://api.bilibili.com/pgc/view/web/season?ep_id={episode_id}"
+    res_json = await fetcher.fetch_json(episode_api)
+    if not res_json or res_json.get("code") != 0:
+        raise Exception(f"无法获取番剧信息，episode_id: {episode_id}")
+    return str(res_json["result"]["season_id"]) 
