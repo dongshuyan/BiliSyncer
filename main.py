@@ -21,6 +21,7 @@ Yutto-Batch - 精简版B站批量下载工具
 用法:
     python main.py <url> [选项]
     python main.py --update [选项]
+    python main.py --update -d <任务目录> [选项]
 
 支持的URL类型:
     - 投稿视频: https://www.bilibili.com/video/BV1xx411c7mD
@@ -38,6 +39,7 @@ Yutto-Batch - 精简版B站批量下载工具
     -c, --cookie STR    设置SESSDATA cookie
     --config NAME       使用指定的配置文件 (不含.yaml扩展名)
     --update            更新模式：扫描输出目录下所有任务并检查更新
+    -d, --directory DIR 定向更新模式：只更新指定的任务目录
     --vip-strict        启用严格VIP模式（传递给yutto）
     --save-cover        保存视频封面（传递给yutto）
     
@@ -45,6 +47,7 @@ Yutto-Batch - 精简版B站批量下载工具
     python main.py "https://www.bilibili.com/video/BV1xx411c7mD"
     python main.py "https://space.bilibili.com/123456/favlist?fid=789012" -o ./my_downloads
     python main.py --update -c "cookie" -o "/path/to/downloads"
+    python main.py --update -d "/path/to/downloads/投稿视频-某UP主-25-06-22-12-00"
     python main.py "https://www.bilibili.com/video/BV1xx411c7mD" --vip-strict
     python main.py "https://www.bilibili.com/video/BV1xx411c7mD" --save-cover
     python main.py "https://www.bilibili.com/video/BV1xx411c7mD" --config vip
@@ -83,6 +86,7 @@ def parse_args():
     
     # 检查是否是更新模式
     update_mode = '--update' in args
+    target_directory = None  # 定向更新的目标目录
     
     if update_mode:
         # 更新模式
@@ -108,6 +112,10 @@ def parse_args():
                 i += 2
             elif args[i] in ['-c', '--cookie'] and i + 1 < len(args):
                 sessdata = args[i + 1]
+                i += 2
+            elif args[i] in ['-d', '--directory'] and i + 1 < len(args):
+                # 定向更新模式
+                target_directory = Path(args[i + 1]).expanduser()
                 i += 2
             elif args[i] == '--vip-strict':
                 # 将vip-strict参数传递给yutto
@@ -157,13 +165,13 @@ def parse_args():
                 extra_args.append(args[i])
                 i += 1
     
-    return url, output_dir, sessdata, extra_args, update_mode
+    return url, output_dir, sessdata, extra_args, update_mode, target_directory
 
 
 async def main():
     """主函数"""
     try:
-        url, output_dir, sessdata, extra_args, update_mode = parse_args()
+        url, output_dir, sessdata, extra_args, update_mode, target_directory = parse_args()
         
         # 创建输出目录
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -177,13 +185,22 @@ async def main():
         )
         
         if update_mode:
-            # 更新模式
-            Logger.info("=== 批量更新模式 ===")
-            Logger.info(f"扫描目录: {output_dir}")
-            if extra_args:
-                Logger.info(f"额外参数传递给yutto: {' '.join(extra_args)}")
-            
-            await downloader.update_all_tasks()
+            if target_directory:
+                # 定向更新模式
+                Logger.info("=== 定向更新模式 ===")
+                Logger.info(f"目标任务目录: {target_directory}")
+                if extra_args:
+                    Logger.info(f"额外参数传递给yutto: {' '.join(extra_args)}")
+                
+                await downloader.update_single_task(target_directory)
+            else:
+                # 批量更新模式
+                Logger.info("=== 批量更新模式 ===")
+                Logger.info(f"扫描目录: {output_dir}")
+                if extra_args:
+                    Logger.info(f"额外参数传递给yutto: {' '.join(extra_args)}")
+                
+                await downloader.update_all_tasks()
             
         else:
             # 普通下载模式

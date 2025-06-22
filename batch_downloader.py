@@ -167,11 +167,17 @@ class BatchDownloader:
             
             # 筛选符合条件的任务目录
             task_dirs = []
+            invalid_dirs = []
+            
             for dir_path in all_dirs:
                 if self._is_valid_task_directory(dir_path):
                     task_dirs.append(dir_path)
                 else:
+                    invalid_dirs.append(dir_path)
                     Logger.debug(f"跳过不符合条件的目录: {dir_path.name}")
+            
+            if invalid_dirs:
+                Logger.info(f"跳过 {len(invalid_dirs)} 个不符合条件的目录")
             
             if not task_dirs:
                 Logger.info("未找到符合条件的任务目录")
@@ -180,39 +186,142 @@ class BatchDownloader:
             Logger.info(f"发现 {len(task_dirs)} 个任务目录")
             
             updated_count = 0
+            error_count = 0
+            
             for task_dir in task_dirs:
                 Logger.info(f"检查任务目录: {task_dir.name}")
                 
-                # 查找CSV文件
-                csv_manager = CSVManager(task_dir)
-                original_url = csv_manager.get_original_url()
-                
-                if original_url:
-                    Logger.info(f"发现任务URL: {original_url}")
-                    try:
-                        # 创建临时下载器，专门用于这个任务的更新
-                        task_downloader = BatchDownloader(
-                            output_dir=self.output_dir,
-                            sessdata=self.sessdata,
-                            extra_args=self.extra_args,
-                            original_url=original_url
-                        )
-                        
-                        # 执行批量下载流程（会自动处理更新逻辑）
-                        await task_downloader.download_from_url(original_url)
-                        updated_count += 1
-                        
-                    except Exception as e:
-                        Logger.error(f"更新任务失败 {task_dir.name}: {e}")
-                        continue
-                else:
-                    Logger.warning(f"任务目录 {task_dir.name} 中未找到CSV文件或原始URL")
+                try:
+                    await self._update_single_task_directory(task_dir)
+                    updated_count += 1
+                    Logger.info(f"✅ 任务更新成功: {task_dir.name}")
+                    
+                except Exception as e:
+                    error_count += 1
+                    error_type = type(e).__name__
+                    Logger.error(f"❌ 更新任务失败 {task_dir.name} ({error_type}): {e}")
+                    
+                    # 根据错误类型提供更具体的建议
+                    if "CSV" in str(e) or "encoding" in str(e).lower():
+                        Logger.warning(f"   建议：检查 {task_dir.name} 目录下的CSV文件格式和编码")
+                    elif "URL" in str(e) or "network" in str(e).lower():
+                        Logger.warning(f"   建议：检查网络连接和原始URL的有效性")
+                    elif "permission" in str(e).lower():
+                        Logger.warning(f"   建议：检查 {task_dir.name} 目录的读写权限")
+                    
+                    continue
             
-            Logger.custom(f"批量更新完成 - 成功更新 {updated_count}/{len(task_dirs)} 个任务", "批量更新")
+            # 显示详细的完成统计
+            total_tasks = len(task_dirs)
+            Logger.custom(f"批量更新完成 - 成功: {updated_count}, 失败: {error_count}, 总计: {total_tasks}", "批量更新")
+            
+            if error_count > 0:
+                Logger.warning(f"有 {error_count} 个任务更新失败，请检查上述错误信息")
             
         except Exception as e:
             Logger.error(f"批量更新失败: {e}")
             raise
+    
+    async def update_single_task(self, task_directory: Path) -> None:
+        """定向更新单个任务目录"""
+        try:
+            # 验证任务目录是否存在
+            if not task_directory.exists():
+                Logger.error(f"指定的任务目录不存在: {task_directory}")
+                return
+            
+            if not task_directory.is_dir():
+                Logger.error(f"指定的路径不是目录: {task_directory}")
+                return
+            
+            # 验证是否为有效的任务目录
+            if not self._is_valid_task_directory(task_directory):
+                Logger.error(f"指定的目录不是有效的任务目录: {task_directory}")
+                Logger.error("有效的任务目录应该：")
+                Logger.error("1. 以特定前缀开头（投稿视频-、番剧-、收藏夹-、视频列表-、视频合集-、UP主-、稍后再看-）")
+                Logger.error("2. 包含格式为 yy-mm-dd-hh-mm.csv 的CSV文件")
+                Logger.error("3. CSV文件包含有效的原始URL")
+                return
+            
+            Logger.info(f"开始更新任务目录: {task_directory.name}")
+            
+            # 使用共同的更新逻辑
+            await self._update_single_task_directory(task_directory)
+            Logger.custom(f"✅ 任务更新成功: {task_directory.name}", "定向更新")
+            
+        except Exception as e:
+            error_type = type(e).__name__
+            Logger.error(f"❌ 更新任务失败 {task_directory.name} ({error_type}): {e}")
+            
+            # 根据错误类型提供更具体的建议
+            if "CSV" in str(e) or "encoding" in str(e).lower():
+                Logger.warning(f"   建议：检查 {task_directory.name} 目录下的CSV文件格式和编码")
+            elif "URL" in str(e) or "network" in str(e).lower():
+                Logger.warning(f"   建议：检查网络连接和原始URL的有效性")
+            elif "permission" in str(e).lower():
+                Logger.warning(f"   建议：检查 {task_directory.name} 目录的读写权限")
+            
+            raise  # 重新抛出异常，让调用者处理
+    
+    async def _update_single_task_directory(self, task_dir: Path) -> None:
+        """更新单个任务目录的核心逻辑"""
+        # 查找CSV文件并验证格式
+        csv_manager = CSVManager(task_dir)
+        original_url = csv_manager.get_original_url()
+        
+        if not original_url:
+            raise Exception(f"任务目录 {task_dir.name} 中未找到有效的原始URL")
+        
+        # 验证CSV文件格式
+        if not self._validate_csv_format(csv_manager):
+            raise Exception(f"任务目录 {task_dir.name} 的CSV文件格式不正确")
+        
+        Logger.info(f"发现任务URL: {original_url}")
+        
+        # 创建临时下载器，专门用于这个任务的更新
+        task_downloader = BatchDownloader(
+            output_dir=task_dir.parent,  # 使用任务目录的父目录作为输出目录
+            sessdata=self.sessdata,
+            extra_args=self.extra_args,
+            original_url=original_url
+        )
+        
+        # 执行批量下载流程（会自动处理更新逻辑）
+        await task_downloader.download_from_url(original_url)
+    
+    def _validate_csv_format(self, csv_manager: CSVManager) -> bool:
+        """验证CSV文件格式是否正确"""
+        try:
+            # 尝试加载视频列表
+            videos = csv_manager.load_video_list()
+            if videos is None:
+                return False
+            
+            # 检查是否有基本的必需字段
+            if not videos:
+                Logger.warning("CSV文件为空")
+                return True  # 空文件也算有效
+            
+            required_fields = ['video_url', 'title', 'downloaded']
+            first_video = videos[0]
+            
+            missing_fields = [field for field in required_fields if field not in first_video]
+            if missing_fields:
+                Logger.error(f"CSV文件缺少必需字段: {missing_fields}")
+                return False
+            
+            # 检查URL格式是否合理
+            sample_url = first_video.get('video_url', '')
+            if not (sample_url.startswith('http') and 'bilibili.com' in sample_url):
+                Logger.error(f"CSV文件中的视频URL格式不正确: {sample_url}")
+                return False
+            
+            Logger.debug("CSV文件格式验证通过")
+            return True
+            
+        except Exception as e:
+            Logger.error(f"CSV文件格式验证失败: {e}")
+            return False
     
     def _is_valid_task_directory(self, dir_path: Path) -> bool:
         """检查目录是否为有效的任务目录"""

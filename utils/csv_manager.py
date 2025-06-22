@@ -262,19 +262,121 @@ class CSVManager:
                     f.seek(0)
                 
                 reader = csv.DictReader(f)
-                for row in reader:
-                    # 确保所有必需字段都存在，为缺失字段设置默认值
-                    row.setdefault('is_multi_part', 'False')
-                    row.setdefault('total_parts', '1')
-                    row.setdefault('status', 'normal')
-                    videos.append(row)
+                
+                # 验证CSV文件是否有标题行
+                if not reader.fieldnames:
+                    Logger.error("CSV文件缺少标题行")
+                    return None
+                
+                # 检查必需字段
+                required_fields = ['video_url', 'title', 'downloaded']
+                missing_fields = [field for field in required_fields if field not in reader.fieldnames]
+                if missing_fields:
+                    Logger.error(f"CSV文件缺少必需字段: {missing_fields}")
+                    Logger.error(f"当前字段: {list(reader.fieldnames)}")
+                    return None
+                
+                row_count = 0
+                error_rows = 0
+                
+                for row_num, row in enumerate(reader, start=2):  # 从第2行开始计数（考虑标题行）
+                    try:
+                        row_count += 1
+                        
+                        # 验证关键字段不为空
+                        if not row.get('video_url', '').strip():
+                            Logger.warning(f"第{row_num}行：video_url为空，跳过")
+                            error_rows += 1
+                            continue
+                        
+                        if not row.get('title', '').strip():
+                            Logger.warning(f"第{row_num}行：title为空，使用默认值")
+                            row['title'] = f"未知标题_{row_count}"
+                        
+                        # 确保所有必需字段都存在，为缺失字段设置默认值
+                        row.setdefault('is_multi_part', 'False')
+                        row.setdefault('total_parts', '1')
+                        row.setdefault('status', 'normal')
+                        row.setdefault('downloaded', 'False')
+                        row.setdefault('name', row.get('title', ''))
+                        row.setdefault('download_path', '')
+                        row.setdefault('avid', '')
+                        row.setdefault('cid', '')
+                        row.setdefault('pubdate', '')
+                        
+                        # 验证和修复数据格式
+                        self._validate_and_fix_row_data(row, row_num)
+                        
+                        videos.append(row)
+                        
+                    except Exception as e:
+                        error_rows += 1
+                        Logger.warning(f"第{row_num}行数据处理失败，跳过: {e}")
+                        continue
+                
+                if error_rows > 0:
+                    Logger.warning(f"CSV文件中有 {error_rows} 行数据存在问题")
+                
+                if not videos:
+                    Logger.warning("CSV文件中没有有效的视频记录")
+                    return []
+                
+                Logger.info(f"从CSV文件加载了 {len(videos)} 个视频记录")
+                return videos
             
-            Logger.info(f"从CSV文件加载了 {len(videos)} 个视频记录")
-            return videos
-            
+        except UnicodeDecodeError as e:
+            Logger.error(f"CSV文件编码错误: {e}")
+            Logger.error("建议：检查文件编码格式，支持的编码: UTF-8, GBK, GB2312")
+            return None
+        except csv.Error as e:
+            Logger.error(f"CSV文件格式错误: {e}")
+            Logger.error("建议：检查CSV文件格式，确保使用正确的分隔符和引号")
+            return None
+        except FileNotFoundError:
+            Logger.error(f"CSV文件不存在: {csv_path}")
+            return None
+        except PermissionError:
+            Logger.error(f"没有权限读取CSV文件: {csv_path}")
+            return None
         except Exception as e:
             Logger.error(f"读取CSV文件失败: {e}")
+            Logger.error(f"文件路径: {csv_path}")
             return None
+    
+    def _validate_and_fix_row_data(self, row: Dict[str, str], row_num: int) -> None:
+        """验证和修复行数据"""
+        # 验证video_url格式
+        video_url = row.get('video_url', '')
+        if video_url and not (video_url.startswith('http') and 'bilibili.com' in video_url):
+            Logger.warning(f"第{row_num}行：video_url格式可能不正确: {video_url}")
+        
+        # 验证和修复downloaded字段
+        downloaded = row.get('downloaded', '').lower()
+        if downloaded not in ['true', 'false']:
+            Logger.warning(f"第{row_num}行：downloaded字段值不正确 '{row['downloaded']}'，设置为False")
+            row['downloaded'] = 'False'
+        else:
+            row['downloaded'] = 'True' if downloaded == 'true' else 'False'
+        
+        # 验证和修复is_multi_part字段
+        is_multi_part = row.get('is_multi_part', '').lower()
+        if is_multi_part not in ['true', 'false']:
+            if is_multi_part:  # 如果有值但不是true/false
+                Logger.warning(f"第{row_num}行：is_multi_part字段值不正确 '{row['is_multi_part']}'，设置为False")
+            row['is_multi_part'] = 'False'
+        else:
+            row['is_multi_part'] = 'True' if is_multi_part == 'true' else 'False'
+        
+        # 验证和修复total_parts字段
+        total_parts = row.get('total_parts', '1')
+        try:
+            parts_num = int(total_parts)
+            if parts_num < 1:
+                Logger.warning(f"第{row_num}行：total_parts值不正确 '{total_parts}'，设置为1")
+                row['total_parts'] = '1'
+        except ValueError:
+            Logger.warning(f"第{row_num}行：total_parts不是数字 '{total_parts}'，设置为1")
+            row['total_parts'] = '1'
     
     def get_pending_videos(self) -> Optional[List[Dict[str, str]]]:
         """获取未下载的视频列表"""
