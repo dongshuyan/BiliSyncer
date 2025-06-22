@@ -438,9 +438,15 @@ def scan_tasks():
         if not scan_dir.exists():
             return jsonify({'success': False, 'message': '目录不存在'})
         
+        # 创建BatchDownloader实例来使用筛选逻辑
+        downloader = BatchDownloader(output_dir=scan_dir)
+        
         tasks = []
-        for task_dir in scan_dir.iterdir():
-            if task_dir.is_dir():
+        all_dirs = [d for d in scan_dir.iterdir() if d.is_dir()]
+        
+        for task_dir in all_dirs:
+            # 使用新的筛选逻辑，只处理有效的任务目录
+            if downloader._is_valid_task_directory(task_dir):
                 csv_manager = CSVManager(task_dir)
                 original_url = csv_manager.get_original_url()
                 stats = csv_manager.get_download_stats()

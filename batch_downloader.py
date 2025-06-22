@@ -159,10 +159,22 @@ class BatchDownloader:
         """更新所有任务：扫描输出目录下的所有任务并检查更新"""
         try:
             # 扫描所有一级子目录
-            task_dirs = [d for d in self.output_dir.iterdir() if d.is_dir()]
+            all_dirs = [d for d in self.output_dir.iterdir() if d.is_dir()]
+            
+            if not all_dirs:
+                Logger.info("未找到任何目录")
+                return
+            
+            # 筛选符合条件的任务目录
+            task_dirs = []
+            for dir_path in all_dirs:
+                if self._is_valid_task_directory(dir_path):
+                    task_dirs.append(dir_path)
+                else:
+                    Logger.debug(f"跳过不符合条件的目录: {dir_path.name}")
             
             if not task_dirs:
-                Logger.info("未找到任何任务目录")
+                Logger.info("未找到符合条件的任务目录")
                 return
             
             Logger.info(f"发现 {len(task_dirs)} 个任务目录")
@@ -201,6 +213,52 @@ class BatchDownloader:
         except Exception as e:
             Logger.error(f"批量更新失败: {e}")
             raise
+    
+    def _is_valid_task_directory(self, dir_path: Path) -> bool:
+        """检查目录是否为有效的任务目录"""
+        import re
+        
+        # 检查目录名是否符合我们的命名格式
+        dir_name = dir_path.name
+        
+        # 支持的命名格式：
+        # 1. 投稿视频-BVxxx-标题
+        # 2. 番剧-编号-标题  
+        # 3. 收藏夹-收藏夹ID-收藏夹名
+        # 4. 视频列表-视频列表ID-视频列表名
+        # 5. 视频合集-视频合集ID-视频合集名
+        # 6. UP主-UP主UID-UP主名
+        # 7. 稍后再看-watchlater-稍后再看
+        valid_prefixes = [
+            '投稿视频-', 
+            '番剧-', 
+            '收藏夹-', 
+            '视频列表-',
+            '视频合集-',
+            'UP主-',
+            '稍后再看-'
+        ]
+        
+        # 检查是否以有效前缀开头
+        has_valid_prefix = any(dir_name.startswith(prefix) for prefix in valid_prefixes)
+        if not has_valid_prefix:
+            return False
+        
+        # 检查目录内是否包含符合格式的CSV文件
+        csv_pattern = re.compile(r'^\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.csv$')
+        csv_files = [f for f in dir_path.iterdir() 
+                    if f.is_file() and f.suffix == '.csv' and csv_pattern.match(f.name)]
+        
+        if not csv_files:
+            return False
+        
+        # 进一步验证：检查CSV文件是否包含原始URL
+        try:
+            csv_manager = CSVManager(dir_path)
+            original_url = csv_manager.get_original_url()
+            return original_url is not None
+        except Exception:
+            return False
     
     async def _download_videos(self, videos: list[VideoInfo], original_url: str) -> None:
         """步骤7: 逐个下载视频"""
