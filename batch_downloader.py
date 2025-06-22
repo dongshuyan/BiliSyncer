@@ -265,29 +265,81 @@ class BatchDownloader:
     
     async def _update_single_task_directory(self, task_dir: Path) -> None:
         """更新单个任务目录的核心逻辑"""
-        # 查找CSV文件并验证格式
-        csv_manager = CSVManager(task_dir)
-        original_url = csv_manager.get_original_url()
-        
-        if not original_url:
-            raise Exception(f"任务目录 {task_dir.name} 中未找到有效的原始URL")
-        
-        # 验证CSV文件格式
-        if not self._validate_csv_format(csv_manager):
-            raise Exception(f"任务目录 {task_dir.name} 的CSV文件格式不正确")
-        
-        Logger.info(f"发现任务URL: {original_url}")
-        
-        # 创建临时下载器，专门用于这个任务的更新
-        task_downloader = BatchDownloader(
-            output_dir=task_dir.parent,  # 使用任务目录的父目录作为输出目录
-            sessdata=self.sessdata,
-            extra_args=self.extra_args,
-            original_url=original_url
-        )
-        
-        # 执行批量下载流程（会自动处理更新逻辑）
-        await task_downloader.download_from_url(original_url)
+        async with self.fetcher:
+            # 初始化CSV管理器，直接使用指定的任务目录
+            self.csv_manager = CSVManager(task_dir)
+            original_url = self.csv_manager.get_original_url()
+            
+            if not original_url:
+                raise Exception(f"任务目录 {task_dir.name} 中未找到有效的原始URL")
+            
+            # 验证CSV文件格式
+            if not self._validate_csv_format(self.csv_manager):
+                raise Exception(f"任务目录 {task_dir.name} 的CSV文件格式不正确")
+            
+            Logger.info(f"发现任务URL: {original_url}")
+            
+            # 设置原始URL
+            self.original_url = original_url
+            
+            # 获取现有的视频列表
+            existing_videos = self.csv_manager.load_video_list()
+            if not existing_videos:
+                Logger.warning(f"任务目录 {task_dir.name} 的CSV文件为空，将重新获取视频列表")
+                existing_videos = []
+            
+            # 从URL获取最新的视频列表
+            Logger.info("正在获取最新的视频列表...")
+            try:
+                # 使用extract_video_list获取视频信息
+                video_list = await extract_video_list(self.fetcher, original_url)
+                new_videos = video_list["videos"]
+            except Exception as e:
+                Logger.error(f"获取视频列表失败: {e}")
+                raise
+            
+            if not new_videos:
+                Logger.warning("未获取到任何视频信息")
+                return
+            
+            Logger.info(f"获取到 {len(new_videos)} 个视频")
+            
+            # 检查是否有新增视频
+            if existing_videos:
+                # 对比CSV中的视频和当前获取的视频
+                csv_video_urls = {video['video_url'] for video in existing_videos}
+                current_video_urls = {video['avid'].to_url() for video in new_videos}
+                
+                new_video_urls = current_video_urls - csv_video_urls
+                
+                if new_video_urls:
+                    Logger.info(f"发现 {len(new_video_urls)} 个新增视频，更新CSV文件")
+                    # 更新CSV文件（保持现有下载状态）
+                    self.csv_manager.update_video_list(new_videos, original_url)
+                    # 只下载新增的视频
+                    videos_to_download = [v for v in new_videos if v['avid'].to_url() in new_video_urls]
+                else:
+                    Logger.info("没有发现新增视频")
+                    # 检查是否有待下载的视频
+                    pending_videos = self.csv_manager.get_pending_videos()
+                    if pending_videos:
+                        Logger.info(f"发现 {len(pending_videos)} 个未完成的下载，继续下载任务")
+                        videos_to_download = [self._csv_to_video_info(data) for data in pending_videos]
+                    else:
+                        Logger.info("所有视频都已下载完成")
+                        return
+            else:
+                # 首次创建CSV文件
+                Logger.info("首次创建CSV文件...")
+                self.csv_manager.save_video_list(new_videos, original_url)
+                videos_to_download = new_videos
+            
+            # 下载待下载的视频
+            if videos_to_download:
+                Logger.info(f"开始下载 {len(videos_to_download)} 个视频...")
+                await self._download_videos(videos_to_download, original_url)
+            else:
+                Logger.info("没有需要下载的视频")
     
     def _validate_csv_format(self, csv_manager: CSVManager) -> bool:
         """验证CSV文件格式是否正确"""

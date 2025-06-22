@@ -420,6 +420,152 @@ def start_update_all():
     })
 
 
+@app.route('/api/update_selected', methods=['POST'])
+def start_update_selected():
+    """开始选择性更新任务"""
+    global task_counter
+    
+    data = request.get_json() or {}
+    task_paths = data.get('task_paths', [])
+    cookie = data.get('cookie', '').strip()
+    vip_strict = data.get('vip_strict', False)
+    save_cover = data.get('save_cover', False)
+    debug = data.get('debug', False)
+    extra_args_from_config = data.get('extra_args', [])
+    
+    if not task_paths:
+        return jsonify({'success': False, 'message': '请选择要更新的任务'})
+    
+    task_counter += 1
+    task_id = f"update_selected_{task_counter}"
+    
+    # 准备参数
+    extra_args = extra_args_from_config.copy() if extra_args_from_config else []
+    if vip_strict:
+        extra_args.append('--vip-strict')
+    if save_cover:
+        extra_args.append('--save-cover')
+    if debug:
+        extra_args.append('--debug')
+    
+    # 记录任务信息
+    current_tasks[task_id] = {
+        'id': task_id,
+        'type': 'update_selected',
+        'task_paths': task_paths,
+        'status': 'starting',
+        'start_time': time.time(),
+        'progress': 0,
+        'progress_detail': {
+            'current_task': 0,
+            'total_tasks': len(task_paths),
+            'current_task_name': '',
+            'completed_tasks': []
+        },
+        'should_stop': False,
+        'process': None,
+        'thread': None
+    }
+    
+    # 在后台线程中执行更新
+    def run_update():
+        try:
+            current_tasks[task_id]['status'] = 'running'
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+            
+            # 设置Logger回调以捕获所有日志
+            Logger.set_callback(create_web_logger_callback(task_id))
+            
+            completed_count = 0
+            failed_count = 0
+            
+            for i, task_path in enumerate(task_paths):
+                if current_tasks[task_id].get('should_stop', False):
+                    Logger.warning(f"选择性更新任务 {task_id} 被手动停止")
+                    break
+                
+                task_name = Path(task_path).name
+                current_tasks[task_id]['progress_detail']['current_task'] = i + 1
+                current_tasks[task_id]['progress_detail']['current_task_name'] = task_name
+                current_tasks[task_id]['progress'] = int((i / len(task_paths)) * 100)
+                socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+                
+                Logger.info(f"[{i+1}/{len(task_paths)}] 开始更新任务: {task_name}")
+                
+                try:
+                    # 创建下载器并执行单个任务更新
+                    downloader = BatchDownloader(
+                        output_dir=Path(task_path).parent,  # 使用任务目录的父目录
+                        sessdata=cookie if cookie else None,
+                        extra_args=extra_args,
+                        original_url=None,
+                        task_id=task_id,
+                        task_control=current_tasks
+                    )
+                    
+                    # 在新的事件循环中运行异步任务
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    await_task = loop.run_until_complete(downloader.update_single_task(Path(task_path)))
+                    loop.close()
+                    
+                    completed_count += 1
+                    # 防护性检查：确保progress_detail结构完整
+                    if 'progress_detail' not in current_tasks[task_id]:
+                        current_tasks[task_id]['progress_detail'] = {
+                            'current_task': i + 1,
+                            'total_tasks': len(task_paths),
+                            'current_task_name': task_name,
+                            'completed_tasks': []
+                        }
+                    elif 'completed_tasks' not in current_tasks[task_id]['progress_detail']:
+                        current_tasks[task_id]['progress_detail']['completed_tasks'] = []
+                    
+                    current_tasks[task_id]['progress_detail']['completed_tasks'].append(task_name)
+                    Logger.info(f"✅ 任务更新成功: {task_name}")
+                    
+                except Exception as e:
+                    failed_count += 1
+                    Logger.error(f"❌ 任务更新失败 {task_name}: {e}")
+                    continue
+            
+            # 检查是否被手动停止
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"选择性更新任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'completed'
+                current_tasks[task_id]['progress'] = 100
+                Logger.custom(f"选择性更新完成 - 成功: {completed_count}, 失败: {failed_count}, 总计: {len(task_paths)}", "选择性更新")
+            
+        except Exception as e:
+            # 检查是否是因为停止导致的异常
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"选择性更新任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'error'
+                current_tasks[task_id]['error'] = str(e)
+                Logger.error(f"选择性更新任务 {task_id} 失败: {e}")
+        finally:
+            # 清除Logger回调
+            Logger.set_callback(None)
+            # 清理进程引用
+            current_tasks[task_id]['process'] = None
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+    
+    thread = threading.Thread(target=run_update)
+    thread.daemon = True
+    current_tasks[task_id]['thread'] = thread
+    thread.start()
+    
+    return jsonify({
+        'success': True, 
+        'message': f'选择性更新任务已开始，将更新 {len(task_paths)} 个任务',
+        'task_id': task_id
+    })
+
+
 @app.route('/api/tasks')
 def get_tasks():
     """获取所有任务状态"""

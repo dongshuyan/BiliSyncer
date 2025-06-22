@@ -3,6 +3,41 @@
 {% block title %}批量更新 - BiliSyncer WebUI{% endblock %}
 {% block page_title %}批量更新{% endblock %}
 
+{% block extra_css %}
+<style>
+    .task-card {
+        transition: all 0.2s ease;
+        border: 2px solid transparent;
+    }
+    
+    .task-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        transform: translateY(-1px);
+    }
+    
+    .task-card.selected {
+        border-color: #0d6efd;
+        background-color: #f8f9ff;
+        box-shadow: 0 2px 8px rgba(13,110,253,0.15);
+    }
+    
+    .task-card.selected .card-body {
+        background-color: transparent;
+    }
+    
+    .task-checkbox {
+        transform: scale(1.2);
+    }
+    
+    .form-check {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 20px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col-lg-8">
@@ -149,33 +184,26 @@
             </div>
             <div class="card-body">
                 <!-- 过滤和排序控制 -->
-                <div class="row mb-3" id="update-task-controls" style="display: none;">
-                    <div class="col-lg-3 col-md-6 mb-2">
-                        <label for="update-task-filter" class="form-label small">过滤任务</label>
-                        <div class="input-group input-group-sm">
-                            <input type="text" class="form-control" id="update-task-filter" placeholder="输入关键词...">
-                            <button class="btn btn-outline-secondary" type="button" onclick="filterUpdateTasks()">
-                                <i class="bi bi-funnel"></i>
-                            </button>
-                            <button class="btn btn-outline-secondary" type="button" onclick="clearUpdateFilter()">
-                                <i class="bi bi-x"></i>
-                            </button>
-                        </div>
+                <div class="row" id="update-controls">
+                    <div class="col-lg-2 col-md-6 mb-2">
+                        <label for="update-filter-input" class="form-label small">过滤任务</label>
+                        <input type="text" class="form-control form-control-sm" id="update-filter-input" 
+                               placeholder="输入关键词..." onkeyup="filterUpdateTasks()">
                     </div>
                     <div class="col-lg-2 col-md-6 mb-2">
-                        <label for="update-task-sort" class="form-label small">排序方式</label>
-                        <select class="form-select form-select-sm" id="update-task-sort" onchange="sortUpdateTasks()">
-                            <option value="name-asc">名称 (A-Z)</option>
-                            <option value="name-desc">名称 (Z-A)</option>
-                            <option value="type-asc">类型 (A-Z)</option>
-                            <option value="type-desc">类型 (Z-A)</option>
-                            <option value="progress-asc">进度 (低-高)</option>
-                            <option value="progress-desc">进度 (高-低)</option>
+                        <label for="update-sort-select" class="form-label small">排序方式</label>
+                        <select class="form-select form-select-sm" id="update-sort-select" onchange="sortUpdateTasks()">
+                            <option value="name-asc">名称 ↑</option>
+                            <option value="name-desc">名称 ↓</option>
+                            <option value="type-asc">类型 ↑</option>
+                            <option value="type-desc">类型 ↓</option>
+                            <option value="progress-asc">进度 ↑</option>
+                            <option value="progress-desc">进度 ↓</option>
                         </select>
                     </div>
                     <div class="col-lg-2 col-md-6 mb-2">
                         <label for="update-type-filter" class="form-label small">任务类型</label>
-                        <select class="form-select form-select-sm" id="update-type-filter" onchange="filterUpdateByType()">
+                        <select class="form-select form-select-sm" id="update-type-filter" onchange="filterUpdateTasks()">
                             <option value="">全部类型</option>
                             <option value="投稿视频">投稿视频</option>
                             <option value="番剧">番剧</option>
@@ -186,14 +214,57 @@
                             <option value="稍后再看">稍后再看</option>
                         </select>
                     </div>
-                    <div class="col-lg-2 col-md-6 mb-2 d-flex align-items-end">
-                        <button class="btn btn-outline-primary btn-sm w-100" onclick="resetUpdateFilters()">
-                            <i class="bi bi-arrow-counterclockwise me-1"></i>重置
+                    <div class="col-lg-2 col-md-6 mb-2">
+                        <label class="form-label small">任务选择</label>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-outline-primary btn-sm" onclick="toggleAllTasks()">
+                                <i class="bi bi-check-all me-1"></i>全选/全不选
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6 mb-2">
+                        <label for="batch-select-input" class="form-label small">批量选择</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="batch-select-input" 
+                                   placeholder="输入关键词..." onkeyup="handleBatchSelectKeyup(event)">
+                            <button class="btn btn-outline-success" type="button" onclick="batchSelectTasks()">
+                                <i class="bi bi-check-square"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-lg-1 col-md-6 mb-2 d-flex align-items-end">
+                        <button class="btn btn-outline-secondary btn-sm w-100" onclick="resetUpdateFilters()">
+                            <i class="bi bi-arrow-clockwise me-1"></i>重置
                         </button>
                     </div>
-                    <div class="col-lg-3 col-md-12 mb-2 d-flex align-items-end">
+                </div>
+                
+                <!-- 选择性更新按钮 -->
+                <div class="row mb-3" id="update-selected-controls" style="display: none;">
+                    <div class="col-12">
+                        <div class="d-flex gap-2 align-items-center">
+                            <button type="button" class="btn btn-warning" onclick="updateSelectedTasks()" id="update-selected-btn" disabled>
+                                <i class="bi bi-arrow-clockwise me-2"></i>更新选中的任务 (<span id="selected-count">0</span>)
+                            </button>
+                            <div class="text-muted small">
+                                只更新被选中的任务，未选中的任务将被跳过
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 任务统计信息 -->
+                <div class="row mb-3" id="update-task-stats" style="display: none;">
+                    <div class="col-md-6">
                         <div class="text-muted small">
+                            <i class="bi bi-list-ul me-1"></i>
                             <span id="update-task-count-info">显示 0 / 0 个任务</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <div class="text-primary small">
+                            <i class="bi bi-check-square me-1"></i>
+                            <span id="update-selected-count-info">已选择 0 个任务</span>
                         </div>
                     </div>
                 </div>
@@ -354,12 +425,14 @@
     
     function showUpdateTaskControls() {
         if (updateAllTasks.length > 0) {
-            document.getElementById('update-task-controls').style.display = 'block';
+            document.getElementById('update-controls').style.display = 'block';
+            document.getElementById('update-task-stats').style.display = 'block';
         }
     }
     
     function hideUpdateTaskControls() {
-        document.getElementById('update-task-controls').style.display = 'none';
+        document.getElementById('update-controls').style.display = 'none';
+        document.getElementById('update-task-stats').style.display = 'none';
     }
     
     function displayTasks(tasks) {
@@ -367,6 +440,14 @@
         const tasksListDiv = document.getElementById('tasks-list');
         const noTasksDiv = document.getElementById('no-filtered-update-tasks');
         const countInfo = document.getElementById('update-task-count-info');
+        
+        // 保存当前的选择状态
+        const currentSelections = new Map();
+        document.querySelectorAll('.task-card').forEach(task => {
+            const taskPath = task.dataset.taskPath;
+            const isSelected = task.classList.contains('selected');
+            currentSelections.set(taskPath, isSelected);
+        });
         
         // 更新任务计数信息
         if (countInfo) {
@@ -393,11 +474,23 @@
         tasksListDiv.style.display = 'block';
         noTasksDiv.style.display = 'none';
         
-        tasksListDiv.innerHTML = tasks.map(task => `
-            <div class="task-card card mb-3">
+        tasksListDiv.innerHTML = tasks.map((task, index) => {
+            // 恢复选择状态，如果是新任务则默认选中
+            const wasSelected = currentSelections.has(task.path) ? currentSelections.get(task.path) : true;
+            const selectedClass = wasSelected ? 'selected' : '';
+            const checkedAttr = wasSelected ? 'checked' : '';
+            
+            return `
+            <div class="task-card card mb-3 ${selectedClass}" data-task-id="${index}" data-task-path="${task.path}" onclick="toggleTaskSelection(this)" style="cursor: pointer;">
                 <div class="card-body">
                     <div class="row align-items-center">
-                        <div class="col-md-5">
+                        <div class="col-md-1 text-center">
+                            <div class="form-check">
+                                <input class="form-check-input task-checkbox" type="checkbox" ${checkedAttr} onchange="handleCheckboxChange(this, event)">
+                                <label class="form-check-label"></label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
                             <div class="d-flex align-items-center mb-2">
                                 <span class="badge bg-${getTypeColor(task.type)} me-2">
                                     <i class="${getTypeIcon(task.type)} me-1"></i>${task.type}
@@ -441,16 +534,22 @@
                     </div>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
         
         resultsDiv.style.display = 'block';
+        
+        // 显示选择性更新控制
+        document.getElementById('update-selected-controls').style.display = 'block';
+        
+        // 更新选中计数
+        updateSelectedCount();
         
         // 滚动到结果区域
         resultsDiv.scrollIntoView({ behavior: 'smooth' });
     }
     
     function filterUpdateTasks() {
-        const filterText = document.getElementById('update-task-filter').value.toLowerCase();
+        const filterText = document.getElementById('update-filter-input').value.toLowerCase();
         const typeFilter = document.getElementById('update-type-filter').value;
         
         updateFilteredTasks = updateAllTasks.filter(task => {
@@ -462,17 +561,8 @@
         sortUpdateTasks();
     }
     
-    function filterUpdateByType() {
-        filterUpdateTasks();
-    }
-    
-    function clearUpdateFilter() {
-        document.getElementById('update-task-filter').value = '';
-        filterUpdateTasks();
-    }
-    
     function sortUpdateTasks() {
-        const sortBy = document.getElementById('update-task-sort').value;
+        const sortBy = document.getElementById('update-sort-select').value;
         const [field, order] = sortBy.split('-');
         
         updateFilteredTasks.sort((a, b) => {
@@ -504,11 +594,127 @@
     }
     
     function resetUpdateFilters() {
-        document.getElementById('update-task-filter').value = '';
+        document.getElementById('update-filter-input').value = '';
         document.getElementById('update-type-filter').value = '';
-        document.getElementById('update-task-sort').value = 'name-asc';
+        document.getElementById('update-sort-select').value = 'name-asc';
         updateFilteredTasks = [...updateAllTasks];
         sortUpdateTasks();
+    }
+    
+    function toggleAllTasks() {
+        const tasks = document.querySelectorAll('.task-card');
+        const selectedTasks = document.querySelectorAll('.task-card.selected');
+        
+        // 如果全部都已选中，则全部取消选择；否则全部选中
+        const shouldSelectAll = selectedTasks.length !== tasks.length;
+        
+        tasks.forEach(task => {
+            if (shouldSelectAll) {
+                task.classList.add('selected');
+            } else {
+                task.classList.remove('selected');
+            }
+            const checkbox = task.querySelector('.task-checkbox');
+            if (checkbox) checkbox.checked = shouldSelectAll;
+        });
+        updateSelectedCount();
+    }
+    
+    function toggleTaskSelection(taskElement) {
+        taskElement.classList.toggle('selected');
+        const checkbox = taskElement.querySelector('.task-checkbox');
+        if (checkbox) {
+            checkbox.checked = taskElement.classList.contains('selected');
+        }
+        updateSelectedCount();
+    }
+    
+    function handleCheckboxChange(checkbox, event) {
+        event.stopPropagation();
+        const taskElement = checkbox.closest('.task-card');
+        if (checkbox.checked) {
+            taskElement.classList.add('selected');
+        } else {
+            taskElement.classList.remove('selected');
+        }
+        updateSelectedCount();
+    }
+    
+    function updateSelectedCount() {
+        const selectedTasks = document.querySelectorAll('.task-card.selected');
+        const count = selectedTasks.length;
+        const totalTasks = document.querySelectorAll('.task-card').length;
+        
+        // 更新选中计数显示
+        document.getElementById('selected-count').textContent = count;
+        document.getElementById('update-selected-count-info').textContent = `已选择 ${count} 个任务`;
+        
+        // 控制按钮状态
+        const btn = document.getElementById('update-selected-btn');
+        btn.disabled = count === 0;
+    }
+    
+    function updateSelectedTasks() {
+        const selectedTasks = document.querySelectorAll('.task-card.selected');
+        const taskPaths = Array.from(selectedTasks).map(task => task.dataset.taskPath);
+        
+        if (taskPaths.length === 0) {
+            showAlert('warning', '请先选择要更新的任务');
+            return;
+        }
+        
+        const selectedConfig = document.getElementById('update-config-select').value;
+        let formData = {
+            task_paths: taskPaths,
+            output_dir: document.getElementById('update_output_dir').value,
+            cookie: document.getElementById('update_cookie').value,
+            vip_strict: document.getElementById('update_vip_strict').checked,
+            save_cover: document.getElementById('update_save_cover').checked,
+            debug: document.getElementById('update_debug').checked
+        };
+        
+        // 如果选择了配置文件，添加额外参数
+        if (selectedConfig) {
+            const config = updateAvailableConfigs.find(c => c.filename === selectedConfig);
+            if (config && config.extra_args) {
+                formData.extra_args = config.extra_args;
+            }
+        }
+        
+        submitForm('/api/update_selected', formData, function(response) {
+            // 可以在这里添加额外的成功处理逻辑
+        });
+    }
+    
+    function batchSelectTasks() {
+        const filterText = document.getElementById('batch-select-input').value.toLowerCase();
+        
+        if (!filterText.trim()) {
+            showAlert('warning', '请输入要批量选择的关键词');
+            return;
+        }
+        
+        const tasks = document.querySelectorAll('.task-card');
+        let selectedCount = 0;
+        
+        tasks.forEach(task => {
+            const taskName = task.querySelector('h6').textContent.toLowerCase();
+            if (taskName.includes(filterText)) {
+                task.classList.add('selected');
+                const checkbox = task.querySelector('.task-checkbox');
+                if (checkbox) checkbox.checked = true;
+                selectedCount++;
+            }
+        });
+        
+        updateSelectedCount();
+        showAlert('success', `已选中 ${selectedCount} 个包含 "${filterText}" 的任务`);
+    }
+    
+    function handleBatchSelectKeyup(event) {
+        if (event.key === 'Enter') {
+            batchSelectTasks();
+        }
     }
     
     // 页面加载时自动扫描
