@@ -41,21 +41,41 @@ async def get_ugc_video_list(fetcher: Fetcher, avid: AvId) -> VideoListData:
         Logger.warning(f"视频 {avid} 分P信息获取失败")
         return {"title": video_title, "videos": []}
     
-    videos = []
-    for i, item in enumerate(cast(List[Any], res_json["data"])):
+    page_data = cast(List[Any], res_json["data"])
+    total_pages = len(page_data)
+    
+    # 如果是多P视频（分P数量 > 1），只返回一个条目，标记为多P视频
+    if total_pages > 1:
+        Logger.info(f"检测到多P视频: {video_title} (共{total_pages}P)")
+        videos = [{
+            "id": 1,
+            "name": f"{video_title} (共{total_pages}P)",
+            "avid": BvId(video_info["bvid"]) if video_info.get("bvid") else AId(str(video_info["aid"])),
+            "cid": CId(str(page_data[0]["cid"])),  # 使用第一P的CID
+            "title": video_title,
+            "pubdate": video_pubdate,
+            "path": Path(video_title),  # 多P视频使用视频标题作为文件夹
+            "is_multi_part": True,  # 标记为多P视频
+            "total_parts": total_pages  # 记录总分P数量
+        }]
+    else:
+        # 单P视频，使用原有逻辑
+        item = page_data[0]
         part_name = item["part"]
         if not part_name or part_name in ["", "未命名"]:
-            part_name = f"{video_title}_P{i + 1:02}"
+            part_name = video_title
         
-        videos.append({
-            "id": i + 1,
+        videos = [{
+            "id": 1,
             "name": part_name,
             "avid": BvId(video_info["bvid"]) if video_info.get("bvid") else AId(str(video_info["aid"])),
             "cid": CId(str(item["cid"])),
             "title": video_title,
-            "pubdate": video_pubdate,  # 添加发布时间
-            "path": Path(f"{video_title}/{part_name}")
-        })
+            "pubdate": video_pubdate,
+            "path": Path(f"{video_title}/{part_name}"),
+            "is_multi_part": False,  # 标记为单P视频
+            "total_parts": 1
+        }]
     
     return {"title": video_title, "videos": videos}
 
@@ -106,7 +126,9 @@ async def get_bangumi_list(fetcher: Fetcher, season_id: str) -> Dict[str, Any]:
             "title": episode_title,
             "pubdate": 0,  # 番剧没有pubdate概念
             "author": result.get("actor", {}).get("info", ""),
-            "duration": 0  # 番剧duration需要从播放页面获取
+            "duration": 0,  # 番剧duration需要从播放页面获取
+            "is_multi_part": False,  # 番剧每集都是单独的，不是多P视频
+            "total_parts": 1  # 每集只有1个部分
         })
     
     return {

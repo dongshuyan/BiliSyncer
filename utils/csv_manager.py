@@ -79,7 +79,8 @@ class CSVManager:
                 
                 writer = csv.DictWriter(f, fieldnames=[
                     'video_url', 'title', 'name', 'download_path', 
-                    'downloaded', 'avid', 'cid', 'pubdate', 'status'
+                    'downloaded', 'avid', 'cid', 'pubdate', 'status',
+                    'is_multi_part', 'total_parts'
                 ])
                 writer.writeheader()
                 
@@ -117,7 +118,9 @@ class CSVManager:
                         'avid': avid_str,
                         'cid': str(cid_value),
                         'pubdate': pubdate_str,
-                        'status': video.get('status', 'normal')
+                        'status': video.get('status', 'normal'),
+                        'is_multi_part': str(video.get('is_multi_part', False)),
+                        'total_parts': str(video.get('total_parts', 1))
                     })
             
             # 验证临时文件写入成功后，移动到正式位置
@@ -199,8 +202,17 @@ class CSVManager:
                         'avid': avid_str,
                         'cid': str(cid_value),
                         'pubdate': pubdate_str,
-                        'status': video.get('status', 'normal')
+                        'status': video.get('status', 'normal'),
+                        'is_multi_part': str(video.get('is_multi_part', False)),
+                        'total_parts': str(video.get('total_parts', 1))
                     })
+            
+            # 定义统一的字段列表
+            fieldnames = [
+                'video_url', 'title', 'name', 'download_path', 
+                'downloaded', 'avid', 'cid', 'pubdate', 'status',
+                'is_multi_part', 'total_parts'
+            ]
             
             # 安全写入新的CSV文件
             with open(temp_path, 'w', newline='', encoding='utf-8-sig') as f:
@@ -208,7 +220,7 @@ class CSVManager:
                 f.write(f"# Original URL: {original_url}\n")
                 
                 if merged_videos:
-                    writer = csv.DictWriter(f, fieldnames=merged_videos[0].keys())
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     writer.writerows(merged_videos)
             
@@ -251,6 +263,10 @@ class CSVManager:
                 
                 reader = csv.DictReader(f)
                 for row in reader:
+                    # 确保所有必需字段都存在，为缺失字段设置默认值
+                    row.setdefault('is_multi_part', 'False')
+                    row.setdefault('total_parts', '1')
+                    row.setdefault('status', 'normal')
                     videos.append(row)
             
             Logger.info(f"从CSV文件加载了 {len(videos)} 个视频记录")
@@ -301,6 +317,11 @@ class CSVManager:
                 
                 reader = csv.DictReader(f)
                 for row in reader:
+                    # 确保所有必需字段都存在，为缺失字段设置默认值
+                    row.setdefault('is_multi_part', 'False')
+                    row.setdefault('total_parts', '1')
+                    row.setdefault('status', 'normal')
+                    
                     if row['video_url'] == video_url:
                         row['downloaded'] = 'True'
                     videos.append(row)
@@ -310,6 +331,13 @@ class CSVManager:
             new_csv_path = self.task_dir / new_csv_filename
             temp_path = self.task_dir / f"temp_{new_csv_filename}"
             
+            # 定义统一的字段列表
+            fieldnames = [
+                'video_url', 'title', 'name', 'download_path', 
+                'downloaded', 'avid', 'cid', 'pubdate', 'status',
+                'is_multi_part', 'total_parts'
+            ]
+            
             # 先写入临时文件，使用UTF-8-BOM编码确保Excel正确识别
             with open(temp_path, 'w', newline='', encoding='utf-8-sig') as f:
                 # 写入原始URL行（如果存在）
@@ -317,7 +345,7 @@ class CSVManager:
                     f.write(url_line)
                 
                 if videos:
-                    writer = csv.DictWriter(f, fieldnames=videos[0].keys())
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     writer.writerows(videos)
             
@@ -401,6 +429,11 @@ class CSVManager:
                 
                 reader = csv.DictReader(f)
                 for row in reader:
+                    # 确保所有必需字段都存在，为缺失字段设置默认值
+                    row.setdefault('is_multi_part', 'False')
+                    row.setdefault('total_parts', '1')
+                    row.setdefault('status', 'normal')
+                    
                     if row['video_url'] == video_url:
                         # 更新视频信息
                         row.update(updated_info)
@@ -411,6 +444,13 @@ class CSVManager:
             new_csv_path = self.task_dir / new_csv_filename
             temp_path = self.task_dir / f"temp_{new_csv_filename}"
             
+            # 定义统一的字段列表
+            fieldnames = [
+                'video_url', 'title', 'name', 'download_path', 
+                'downloaded', 'avid', 'cid', 'pubdate', 'status',
+                'is_multi_part', 'total_parts'
+            ]
+            
             # 先写入临时文件，使用UTF-8-BOM编码确保Excel正确识别
             with open(temp_path, 'w', newline='', encoding='utf-8-sig') as f:
                 # 写入原始URL行（如果存在）
@@ -418,7 +458,7 @@ class CSVManager:
                     f.write(url_line)
                 
                 if videos:
-                    writer = csv.DictWriter(f, fieldnames=videos[0].keys())
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     writer.writerows(videos)
             

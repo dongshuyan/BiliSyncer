@@ -510,6 +510,12 @@ class BatchDownloader:
         actual_video_url = video['avid'].to_url()
         yutto_cmd.append(actual_video_url)
         
+        # 检查是否为多P视频，如果是则添加-b参数
+        if video.get('is_multi_part', False):
+            yutto_cmd.append("-b")
+            total_parts = video.get('total_parts', 1)
+            Logger.info(f"检测到多P视频，使用批量下载模式 (共{total_parts}P)")
+        
         # 输出目录 - 使用video['path']中设置的最终文件夹名（即视频号-标题格式）
         video_path = video.get('path', Path(f"{avid}"))
         if isinstance(video_path, str):
@@ -619,7 +625,9 @@ class BatchDownloader:
                 'path': Path(csv_data['download_path']),
                 'pubdate': 0,  # 番剧没有pubdate
                 'status': csv_data.get('status', 'pending'),
-                'episode_id': episode_id  # 保存episode_id用于获取详细信息
+                'episode_id': episode_id,  # 保存episode_id用于获取详细信息
+                'is_multi_part': csv_data.get('is_multi_part', 'False') == 'True',  # 从CSV读取多P标记
+                'total_parts': int(csv_data.get('total_parts', '1'))  # 从CSV读取总分P数量
             }
         else:
             # 普通投稿视频
@@ -654,7 +662,9 @@ class BatchDownloader:
                 'cid': CId(csv_data['cid']),
                 'path': Path(csv_data['download_path']),
                 'pubdate': pubdate,
-                'status': csv_data.get('status', 'pending')
+                'status': csv_data.get('status', 'pending'),
+                'is_multi_part': csv_data.get('is_multi_part', 'False') == 'True',  # 从CSV读取多P标记
+                'total_parts': int(csv_data.get('total_parts', '1'))  # 从CSV读取总分P数量
             }
         
         return video_info  # type: ignore 

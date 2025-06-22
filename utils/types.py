@@ -112,6 +112,8 @@ class VideoInfo(TypedDict):
     episode_id: Optional[str]  # 番剧剧集ID（仅番剧视频）
     author: Optional[str]  # 作者
     duration: Optional[int]  # 时长
+    is_multi_part: Optional[bool]  # 是否为多P视频
+    total_parts: Optional[int]  # 总分P数量
 
 
 class VideoListData(TypedDict):
