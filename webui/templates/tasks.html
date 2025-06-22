@@ -101,7 +101,7 @@
             <div class="card-body">
                 <!-- 过滤和排序控制 -->
                 <div class="row mb-3" id="task-controls" style="display: none;">
-                    <div class="col-md-3">
+                    <div class="col-lg-3 col-md-6 mb-2">
                         <label for="task-filter" class="form-label small">过滤任务</label>
                         <div class="input-group input-group-sm">
                             <input type="text" class="form-control" id="task-filter" placeholder="输入关键词...">
@@ -113,7 +113,7 @@
                             </button>
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-lg-2 col-md-6 mb-2">
                         <label for="task-sort" class="form-label small">排序方式</label>
                         <select class="form-select form-select-sm" id="task-sort" onchange="sortTasks()">
                             <option value="name-asc">名称 (A-Z)</option>
@@ -124,7 +124,7 @@
                             <option value="progress-desc">进度 (高-低)</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-lg-2 col-md-6 mb-2">
                         <label for="type-filter" class="form-label small">任务类型</label>
                         <select class="form-select form-select-sm" id="type-filter" onchange="filterByType()">
                             <option value="">全部类型</option>
@@ -137,15 +137,27 @@
                             <option value="稍后再看">稍后再看</option>
                         </select>
                     </div>
-                    <div class="col-md-3 d-flex align-items-end">
+                    <div class="col-lg-2 col-md-6 mb-2 d-flex align-items-end">
                         <button class="btn btn-outline-primary btn-sm w-100" onclick="resetFilters()">
                             <i class="bi bi-arrow-counterclockwise me-1"></i>重置
                         </button>
+                    </div>
+                    <div class="col-lg-3 col-md-12 mb-2 d-flex align-items-end">
+                        <div class="text-muted small">
+                            <span id="task-count-info">显示 0 / 0 个任务</span>
+                        </div>
                     </div>
                 </div>
                 
                 <div id="local-tasks">
                     <div class="text-muted text-center py-4">点击"扫描本地任务"来查看已存在的任务</div>
+                </div>
+                
+                <!-- 过滤结果为空时的提示 -->
+                <div id="no-filtered-tasks" class="text-muted text-center py-4" style="display: none;">
+                    <i class="bi bi-search me-2"></i>没有找到符合条件的任务
+                    <br>
+                    <small class="text-muted">尝试调整过滤条件或点击重置按钮</small>
                 </div>
             </div>
         </div>
@@ -285,12 +297,32 @@
     
     function displayLocalTasks(tasks) {
         const container = document.getElementById('local-tasks');
+        const noTasksDiv = document.getElementById('no-filtered-tasks');
+        const countInfo = document.getElementById('task-count-info');
+        
+        // 更新任务计数信息
+        if (countInfo) {
+            countInfo.textContent = `显示 ${tasks.length} / ${allTasks.length} 个任务`;
+        }
         
         if (tasks.length === 0) {
-            container.innerHTML = '<div class="text-muted text-center py-4">未找到任何任务文件夹</div>';
-            hideTaskControls();
+            // 如果是过滤后的结果为空，显示特殊提示
+            if (allTasks.length > 0) {
+                container.style.display = 'none';
+                noTasksDiv.style.display = 'block';
+            } else {
+                // 如果是初始状态没有任务
+                container.innerHTML = '<div class="text-muted text-center py-4">未找到任何任务文件夹</div>';
+                container.style.display = 'block';
+                noTasksDiv.style.display = 'none';
+                hideTaskControls();
+            }
             return;
         }
+        
+        // 有任务时隐藏空结果提示，显示任务列表
+        container.style.display = 'block';
+        noTasksDiv.style.display = 'none';
         
         container.innerHTML = tasks.map((task, index) => `
             <div class="task-card card mb-3">
