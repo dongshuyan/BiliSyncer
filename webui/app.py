@@ -243,6 +243,11 @@ def start_download():
         'status': 'starting',
         'start_time': time.time(),
         'progress': 0,
+        'progress_detail': {
+            'downloaded': 0,
+            'total': 0,
+            'pending': 0
+        },
         'should_stop': False,  # 停止标志
         'process': None,       # 当前进程引用
         'thread': None         # 线程引用
@@ -343,6 +348,11 @@ def start_update_all():
         'status': 'starting',
         'start_time': time.time(),
         'progress': 0,
+        'progress_detail': {
+            'downloaded': 0,
+            'total': 0,
+            'pending': 0
+        },
         'should_stop': False,  # 停止标志
         'process': None,       # 当前进程引用
         'thread': None         # 线程引用

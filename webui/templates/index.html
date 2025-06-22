@@ -301,8 +301,18 @@
                             </span>
                         </div>
                         ${task.progress !== undefined ? `
-                            <div class="progress mt-2" style="height: 4px;">
-                                <div class="progress-bar" style="width: ${task.progress}%"></div>
+                            <div class="mt-2">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <div class="progress flex-grow-1 me-2" style="height: 6px;">
+                                        <div class="progress-bar" style="width: ${task.progress}%"></div>
+                                    </div>
+                                    <small class="text-muted">${task.progress}%</small>
+                                </div>
+                                ${task.progress_detail ? `
+                                    <small class="text-muted">
+                                        已完成: ${task.progress_detail.downloaded}/${task.progress_detail.total}
+                                    </small>
+                                ` : ''}
                             </div>
                         ` : ''}
                     </div>

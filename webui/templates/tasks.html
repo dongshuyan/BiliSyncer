@@ -231,11 +231,18 @@
                         </div>
                         <div class="col-md-2">
                             ${task.progress !== undefined ? `
-                                <div class="progress">
-                                    <div class="progress-bar ${task.status === 'error' ? 'bg-danger' : ''}" 
-                                         style="width: ${task.progress}%">
-                                        ${task.progress}%
+                                <div class="text-center">
+                                    <div class="progress mb-1">
+                                        <div class="progress-bar ${task.status === 'error' ? 'bg-danger' : ''}" 
+                                             style="width: ${task.progress}%">
+                                            ${task.progress}%
+                                        </div>
                                     </div>
+                                    ${task.progress_detail ? `
+                                        <small class="text-muted">
+                                            ${task.progress_detail.downloaded}/${task.progress_detail.total}
+                                        </small>
+                                    ` : ''}
                                 </div>
                             ` : ''}
                         </div>

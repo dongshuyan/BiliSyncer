@@ -39,6 +39,45 @@ class BatchDownloader:
             return self.task_control.get(self.task_id, {}).get('should_stop', False)
         return False
     
+    def _update_progress(self) -> None:
+        """更新任务进度"""
+        if not self.task_id or not self.task_control or not self.csv_manager:
+            return
+        
+        try:
+            # 获取下载统计信息
+            stats = self.csv_manager.get_download_stats()
+            total = stats['total']
+            downloaded = stats['downloaded']
+            
+            if total > 0:
+                progress = int((downloaded / total) * 100)
+                
+                # 更新任务控制字典中的进度
+                if self.task_id in self.task_control:
+                    self.task_control[self.task_id]['progress'] = progress
+                    self.task_control[self.task_id]['progress_detail'] = {
+                        'downloaded': downloaded,
+                        'total': total,
+                        'pending': stats['pending']
+                    }
+                    
+                    # 如果有WebSocket连接，推送进度更新
+                    try:
+                        import sys
+                        if 'webui.app' in sys.modules:
+                            webui_app = sys.modules['webui.app']
+                            if hasattr(webui_app, 'socketio') and hasattr(webui_app, 'filter_task_for_json'):
+                                webui_app.socketio.emit('task_progress', 
+                                    webui_app.filter_task_for_json(self.task_control[self.task_id]))
+                    except Exception:
+                        # 如果不在WebUI环境中运行或出现错误，忽略WebSocket推送
+                        pass
+                    
+                Logger.debug(f"任务进度更新: {downloaded}/{total} ({progress}%)")
+        except Exception as e:
+            Logger.error(f"更新进度失败: {e}")
+    
     async def download_from_url(self, url: str) -> None:
         """从URL开始批量下载"""
         async with self.fetcher:
@@ -103,6 +142,9 @@ class BatchDownloader:
                 if not videos_to_download:
                     Logger.info("没有需要下载的视频")
                     return
+                
+                # 初始化进度（CSV文件已创建，获取初始进度）
+                self._update_progress()
                 
                 Logger.custom(f"{task_name} ({len(videos_to_download)}个视频)", "批量下载")
                 
@@ -179,6 +221,8 @@ class BatchDownloader:
                     if self.csv_manager:
                         self.csv_manager.mark_video_downloaded(video_url)
                     Logger.info(f"[{i}/{len(videos)}] 已标记不可访问视频为已处理: {video['name']}")
+                    # 更新进度
+                    self._update_progress()
                     continue
                 
                 # 关键步骤：如果视频状态为pending，先获取详细信息
@@ -201,12 +245,24 @@ class BatchDownloader:
                     
                 Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']}")
                 
+                # 更新进度
+                self._update_progress()
+                
                 # 添加视频间延迟，避免请求过于频繁
                 if i < len(videos):  # 不是最后一个视频
                     await asyncio.sleep(2.0)  # 延迟2秒
                     
             except Exception as e:
                 Logger.error(f"下载视频 {video['name']} 失败: {e}")
+                
+                # 即使下载失败，也标记为已处理（避免无限重试）
+                video_url = self._get_video_url(video)
+                if self.csv_manager:
+                    self.csv_manager.mark_video_downloaded(video_url)
+                
+                # 更新进度
+                self._update_progress()
+                
                 # 下载失败时也添加短暂延迟，避免连续快速重试
                 await asyncio.sleep(1.0)
                 continue
