@@ -10,7 +10,30 @@
     <style>
         .sidebar {
             min-height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+        }
+        .sidebar .nav-link {
+            color: #495057 !important;
+        }
+        .sidebar .nav-link:hover {
+            background-color: #e9ecef;
+            color: #212529 !important;
+        }
+        .sidebar .nav-link.active {
+            background-color: #007bff;
+            color: white !important;
+        }
+        .sidebar hr {
+            border-color: #dee2e6;
+        }
+        .sidebar .github-link {
+            color: #6c757d;
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .sidebar .github-link:hover {
+            color: #007bff;
         }
         .main-content {
             min-height: 100vh;
@@ -43,33 +66,39 @@
         <div class="row">
             <!-- 侧边栏 -->
             <div class="col-md-3 col-lg-2 sidebar p-0">
-                <div class="d-flex flex-column flex-shrink-0 p-3 text-white h-100">
-                    <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
+                <div class="d-flex flex-column flex-shrink-0 p-3 h-100">
+                    <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-decoration-none">
                         <img src="{{ url_for('static', filename='favicon.ico') }}" alt="Logo" width="32" height="32" class="me-2">
-                        <span class="fs-4">BiliSyncer</span>
+                        <span class="fs-4 text-dark">BiliSyncer</span>
                     </a>
+                    <div class="mb-3">
+                        <a href="https://github.com/dongshuyan/BiliSyncer/tree/master" target="_blank" class="github-link">
+                            <i class="bi bi-github me-1"></i>
+                            GitHub 项目主页
+                        </a>
+                    </div>
                     <hr>
                     <ul class="nav nav-pills flex-column mb-auto">
                         <li class="nav-item">
-                            <a href="/" class="nav-link text-white {% if request.endpoint == 'index' %}active{% endif %}">
+                            <a href="/" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">
                                 <i class="bi bi-download me-2"></i>
                                 下载管理
                             </a>
                         </li>
                         <li>
-                            <a href="/update" class="nav-link text-white {% if request.endpoint == 'update_page' %}active{% endif %}">
+                            <a href="/update" class="nav-link {% if request.endpoint == 'update_page' %}active{% endif %}">
                                 <i class="bi bi-arrow-clockwise me-2"></i>
                                 批量更新
                             </a>
                         </li>
                         <li>
-                            <a href="/tasks" class="nav-link text-white {% if request.endpoint == 'tasks_page' %}active{% endif %}">
+                            <a href="/tasks" class="nav-link {% if request.endpoint == 'tasks_page' %}active{% endif %}">
                                 <i class="bi bi-list-task me-2"></i>
                                 任务状态
                             </a>
                         </li>
                         <li>
-                            <a href="/config" class="nav-link text-white {% if request.endpoint == 'config_page' %}active{% endif %}">
+                            <a href="/config" class="nav-link {% if request.endpoint == 'config_page' %}active{% endif %}">
                                 <i class="bi bi-gear me-2"></i>
                                 配置管理
                             </a>
@@ -77,7 +106,7 @@
                     </ul>
                     <hr>
                     <div class="text-center">
-                        <small class="text-white-50">v1.0.0</small>
+                        <small class="text-muted">v1.0.0</small>
                     </div>
                 </div>
             </div>

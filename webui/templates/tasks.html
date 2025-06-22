@@ -5,42 +5,39 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-12">
+    <div class="col-lg-4">
         <!-- 任务统计 -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <i class="bi bi-play-circle display-4 text-primary"></i>
-                        <h4 class="mt-2" id="running-count">0</h4>
-                        <p class="text-muted mb-0">运行中</p>
-                    </div>
-                </div>
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-bar-chart me-2"></i>任务统计
+                </h5>
             </div>
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <i class="bi bi-check-circle display-4 text-success"></i>
-                        <h4 class="mt-2" id="completed-count">0</h4>
-                        <p class="text-muted mb-0">已完成</p>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-box">
+                            <div class="stat-value text-primary" id="running-count">0</div>
+                            <div class="stat-label">运行中</div>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <i class="bi bi-exclamation-circle display-4 text-danger"></i>
-                        <h4 class="mt-2" id="error-count">0</h4>
-                        <p class="text-muted mb-0">失败</p>
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-box">
+                            <div class="stat-value text-success" id="completed-count">0</div>
+                            <div class="stat-label">已完成</div>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <i class="bi bi-list display-4 text-info"></i>
-                        <h4 class="mt-2" id="total-count">0</h4>
-                        <p class="text-muted mb-0">总任务</p>
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-box">
+                            <div class="stat-value text-danger" id="error-count">0</div>
+                            <div class="stat-label">失败</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-box">
+                            <div class="stat-value text-info" id="total-count">0</div>
+                            <div class="stat-label">总计</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -90,7 +87,9 @@
                 </div>
             </div>
         </div>
-        
+    </div>
+    
+    <div class="col-lg-8">
         <!-- 本地任务文件夹 -->
         <div class="card">
             <div class="card-header">
@@ -99,6 +98,19 @@
                 </h5>
             </div>
             <div class="card-body">
+                <!-- 扫描进度条 -->
+                <div id="scan-progress" class="mb-3" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <small class="text-muted">正在扫描目录...</small>
+                        <small class="text-muted" id="scan-progress-text">0 / 0</small>
+                    </div>
+                    <div class="progress mb-2">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             id="scan-progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="text-muted small" id="scan-current-dir">准备开始...</div>
+                </div>
+                
                 <!-- 过滤和排序控制 -->
                 <div class="row mb-3" id="task-controls" style="display: none;">
                     <div class="col-lg-3 col-md-6 mb-2">
@@ -195,30 +207,46 @@
                 if (data.success) {
                     tasksAvailableConfigs = data.configs;
                     applyDefaultScanDir();
+                    
+                    // 自动扫描
+                    setTimeout(function() {
+                        const scanDir = document.getElementById('scan_dir').value;
+                        if (scanDir && scanDir.trim()) {
+                            scanAndDisplayTasks();
+                        }
+                    }, 500);
                 }
             })
             .catch(error => {
                 console.error('加载配置失败:', error);
+                // 即使配置加载失败，也尝试用默认路径扫描
+                setTimeout(function() {
+                    const scanDir = document.getElementById('scan_dir').value;
+                    if (scanDir && scanDir.trim()) {
+                        scanAndDisplayTasks();
+                    }
+                }, 500);
             });
     }
     
     function applyDefaultScanDir() {
-        // 查找默认配置
         const defaultConfig = tasksAvailableConfigs.find(c => c.filename === 'default');
         if (defaultConfig && defaultConfig.output_dir) {
             document.getElementById('scan_dir').value = defaultConfig.output_dir;
         } else {
-            document.getElementById('scan_dir').value = '~/Downloads';
+            const currentValue = document.getElementById('scan_dir').value;
+            if (!currentValue || currentValue === '~/Downloads') {
+                document.getElementById('scan_dir').value = './downloads';
+            }
         }
     }
     
     function refreshAllTasks() {
-        // 刷新运行中的任务
         fetch('/api/tasks')
             .then(response => response.json())
             .then(tasks => {
                 displayRunningTasks(tasks);
-                updateTaskCounts(tasks, filteredTasks); // 使用过滤后的任务数据
+                updateTaskCounts(tasks);
             })
             .catch(error => {
                 console.error('刷新运行任务失败:', error);
@@ -233,30 +261,57 @@
             return;
         }
         
-        fetch(`/api/scan_tasks?output_dir=${encodeURIComponent(scanDir)}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    allTasks = data.tasks;
-                    filteredTasks = [...allTasks]; // 初始化过滤后的任务列表
-                    displayLocalTasks(filteredTasks);
-                    showTaskControls(); // 显示过滤和排序控制
-                    // 扫描完本地任务后，重新统计总数
-                    fetch('/api/tasks')
-                        .then(response => response.json())
-                        .then(runningTasks => {
-                            updateTaskCounts(runningTasks, filteredTasks);
-                        })
-                        .catch(error => {
-                            console.error('获取运行任务失败:', error);
-                        });
-                } else {
-                    showAlert('danger', data.message);
-                }
+        allTasks = [];
+        filteredTasks = [];
+        
+        document.getElementById('scan-progress').style.display = 'block';
+        document.getElementById('scan-progress-bar').style.width = '0%';
+        document.getElementById('scan-progress-text').textContent = '0 / 0';
+        document.getElementById('scan-current-dir').textContent = '准备开始...';
+        
+        document.getElementById('local-tasks').innerHTML = '<div class="text-muted text-center py-4">正在扫描任务...</div>';
+        hideTaskControls();
+        
+        const scanBtn = document.querySelector('button[onclick="scanAndDisplayTasks()"]');
+        scanBtn.disabled = true;
+        scanBtn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>扫描中...';
+        
+        fetch('/api/scan_tasks_with_progress', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                output_dir: scanDir
             })
-            .catch(error => {
-                showAlert('danger', '扫描失败: ' + error.message);
-            });
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // 扫描已开始，等待WebSocket事件
+            } else {
+                showAlert('danger', data.message);
+                resetScanUI();
+            }
+        })
+        .catch(error => {
+            showAlert('danger', '扫描失败: ' + error.message);
+            resetScanUI();
+        });
+    }
+    
+    function resetScanUI() {
+        document.getElementById('scan-progress').style.display = 'none';
+        const scanBtn = document.querySelector('button[onclick="scanAndDisplayTasks()"]');
+        scanBtn.disabled = false;
+        scanBtn.innerHTML = '<i class="bi bi-search me-2"></i>扫描本地任务';
+    }
+    
+    function addTaskToList(task) {
+        allTasks.push(task);
+        filteredTasks.push(task);
+        displayLocalTasks(filteredTasks);
+        showTaskControls();
     }
     
     function showTaskControls() {
@@ -267,32 +322,43 @@
         document.getElementById('task-controls').style.display = 'none';
     }
     
-    function getTypeIcon(type) {
-        const icons = {
-            '投稿视频': 'bi-play-btn',
-            '番剧': 'bi-tv',
-            '收藏夹': 'bi-star',
-            '视频列表': 'bi-list-ul',
-            '视频合集': 'bi-collection',
-            'UP主': 'bi-person-circle',
-            '稍后再看': 'bi-clock',
-            '未知': 'bi-question-circle'
-        };
-        return icons[type] || 'bi-question-circle';
-    }
-    
-    function getTypeColor(type) {
-        const colors = {
-            '投稿视频': 'primary',
-            '番剧': 'success',
-            '收藏夹': 'warning',
-            '视频列表': 'info',
-            '视频合集': 'secondary',
-            'UP主': 'danger',
-            '稍后再看': 'dark',
-            '未知': 'muted'
-        };
-        return colors[type] || 'muted';
+    function displayRunningTasks(tasks) {
+        const realTasks = tasks.filter(task => task.type !== 'scan');
+        const container = document.getElementById('running-tasks');
+        
+        if (realTasks.length === 0) {
+            container.innerHTML = '<div class="text-muted text-center py-4">暂无运行中的任务</div>';
+            return;
+        }
+        
+        container.innerHTML = realTasks.map(task => `
+            <div class="card mb-2">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge ${getStatusBadgeClass(task.status)} me-2">
+                                ${getStatusText(task.status)}
+                            </span>
+                            <span class="fw-bold">${task.name || task.id}</span>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            ${task.status === 'running' || task.status === 'starting' ? `
+                                <button class="btn btn-outline-warning btn-sm" onclick="stopTask('${task.id}')">
+                                    <i class="bi bi-stop"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    <div class="mt-1">
+                        <small class="text-muted">
+                            ${task.progress ? `进度: ${task.progress}%` : ''}
+                            ${task.eta ? ` | 预计剩余: ${task.eta}` : ''}
+                            ${task.start_time ? ` | 开始时间: ${new Date(task.start_time * 1000).toLocaleString()}` : ''}
+                        </small>
+                    </div>
+                </div>
+            </div>
+        `).join('');
     }
     
     function displayLocalTasks(tasks) {
@@ -300,18 +366,15 @@
         const noTasksDiv = document.getElementById('no-filtered-tasks');
         const countInfo = document.getElementById('task-count-info');
         
-        // 更新任务计数信息
         if (countInfo) {
             countInfo.textContent = `显示 ${tasks.length} / ${allTasks.length} 个任务`;
         }
         
         if (tasks.length === 0) {
-            // 如果是过滤后的结果为空，显示特殊提示
             if (allTasks.length > 0) {
                 container.style.display = 'none';
                 noTasksDiv.style.display = 'block';
             } else {
-                // 如果是初始状态没有任务
                 container.innerHTML = '<div class="text-muted text-center py-4">未找到任何任务文件夹</div>';
                 container.style.display = 'block';
                 noTasksDiv.style.display = 'none';
@@ -320,7 +383,6 @@
             return;
         }
         
-        // 有任务时隐藏空结果提示，显示任务列表
         container.style.display = 'block';
         noTasksDiv.style.display = 'none';
         
@@ -368,6 +430,34 @@
         `).join('');
     }
     
+    function getTypeIcon(type) {
+        const icons = {
+            '投稿视频': 'bi-play-btn',
+            '番剧': 'bi-tv',
+            '收藏夹': 'bi-star',
+            '视频列表': 'bi-list-ul',
+            '视频合集': 'bi-collection',
+            'UP主': 'bi-person-circle',
+            '稍后再看': 'bi-clock',
+            '未知': 'bi-question-circle'
+        };
+        return icons[type] || 'bi-question-circle';
+    }
+    
+    function getTypeColor(type) {
+        const colors = {
+            '投稿视频': 'primary',
+            '番剧': 'success',
+            '收藏夹': 'warning',
+            '视频列表': 'info',
+            '视频合集': 'secondary',
+            'UP主': 'danger',
+            '稍后再看': 'dark',
+            '未知': 'muted'
+        };
+        return colors[type] || 'muted';
+    }
+    
     function filterTasks() {
         const filterText = document.getElementById('task-filter').value.toLowerCase();
         const typeFilter = document.getElementById('type-filter').value;
@@ -378,7 +468,7 @@
             return matchesText && matchesType;
         });
         
-        sortTasks();
+        displayLocalTasks(filteredTasks);
     }
     
     function filterByType() {
@@ -387,12 +477,15 @@
     
     function clearFilter() {
         document.getElementById('task-filter').value = '';
-        filterTasks();
+        document.getElementById('type-filter').value = '';
+        filteredTasks = [...allTasks];
+        displayLocalTasks(filteredTasks);
     }
     
     function sortTasks() {
-        const sortBy = document.getElementById('task-sort').value;
-        const [field, order] = sortBy.split('-');
+        const sortBy = document.getElementById('task-sort').value.split('-');
+        const field = sortBy[0];
+        const order = sortBy[1];
         
         filteredTasks.sort((a, b) => {
             let valueA, valueB;
@@ -420,16 +513,6 @@
         });
         
         displayLocalTasks(filteredTasks);
-        
-        // 更新统计
-        fetch('/api/tasks')
-            .then(response => response.json())
-            .then(runningTasks => {
-                updateTaskCounts(runningTasks, filteredTasks);
-            })
-            .catch(error => {
-                console.error('获取运行任务失败:', error);
-            });
     }
     
     function resetFilters() {
@@ -440,79 +523,9 @@
         sortTasks();
     }
     
-    function displayRunningTasks(tasks) {
-        const container = document.getElementById('running-tasks');
-        
-        if (tasks.length === 0) {
-            container.innerHTML = '<div class="text-muted text-center py-4">暂无运行中的任务</div>';
-            return;
-        }
-        
-        container.innerHTML = tasks.map(task => `
-            <div class="task-card card mb-3">
-                <div class="card-body">
-                    <div class="row align-items-center">
-                        <div class="col-md-6">
-                            <h6 class="mb-1">
-                                ${task.type === 'update_all' ? '批量更新任务' : '下载任务'}
-                            </h6>
-                            <small class="text-muted text-truncate d-block" style="max-width: 300px;">
-                                ${task.url || task.output_dir}
-                            </small>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="d-flex align-items-center">
-                                <span class="badge ${getStatusBadgeClass(task.status)} me-2">
-                                    ${getStatusText(task.status)}
-                                </span>
-                                <small class="text-muted">
-                                    ${formatDuration(Date.now() / 1000 - task.start_time)}
-                                </small>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            ${task.progress !== undefined ? `
-                                <div class="text-center">
-                                    <div class="progress mb-1">
-                                        <div class="progress-bar ${task.status === 'error' ? 'bg-danger' : ''}" 
-                                             style="width: ${task.progress}%">
-                                            ${task.progress}%
-                                        </div>
-                                    </div>
-                                    ${task.progress_detail ? `
-                                        <small class="text-muted">
-                                            ${task.progress_detail.downloaded}/${task.progress_detail.total}
-                                        </small>
-                                    ` : ''}
-                                </div>
-                            ` : ''}
-                        </div>
-                        <div class="col-md-1">
-                            ${(task.status === 'running' || task.status === 'starting') ? `
-                                <button class="btn btn-sm btn-outline-danger" 
-                                        onclick="stopTask('${task.id}')" 
-                                        title="停止任务">
-                                    <i class="bi bi-stop-circle"></i>
-                                </button>
-                            ` : ''}
-                        </div>
-                    </div>
-                    ${task.error ? `
-                        <div class="mt-2">
-                            <div class="alert alert-danger mb-0 py-2">
-                                <small><i class="bi bi-exclamation-triangle me-1"></i>${task.error}</small>
-                            </div>
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-        `).join('');
-    }
-    
     function viewTaskDetail(taskIndex) {
         const task = allTasks[taskIndex];
         
-        // 显示任务详情，包括类型信息
         document.getElementById('csv-detail-content').innerHTML = `
             <div class="row">
                 <div class="col-md-6">
@@ -563,40 +576,25 @@
         new bootstrap.Modal(document.getElementById('csvDetailModal')).show();
     }
     
-    function updateTaskCounts(runningTasks, localTasks = []) {
-        // 统计运行中的任务
-        const running = runningTasks.filter(t => t.status === 'running' || t.status === 'starting').length;
-        const runningCompleted = runningTasks.filter(t => t.status === 'completed').length;
-        const runningError = runningTasks.filter(t => t.status === 'error').length;
-        const stopped = runningTasks.filter(t => t.status === 'stopped' || t.status === 'stopping').length;
+    function updateTaskCounts(runningTasks) {
+        const realTasks = runningTasks.filter(task => task.type !== 'scan');
         
-        // 统计本地任务（基于下载完成度）
-        let localCompleted = 0;
-        let localTotal = 0;
+        const running = realTasks.filter(t => t.status === 'running' || t.status === 'starting').length;
+        const completed = realTasks.filter(t => t.status === 'completed').length;
+        const error = realTasks.filter(t => t.status === 'error').length;
+        const stopped = realTasks.filter(t => t.status === 'stopped' || t.status === 'stopping').length;
         
-        localTasks.forEach(task => {
-            if (task.total > 0) {
-                if (task.downloaded === task.total) {
-                    localCompleted++;
-                }
-                localTotal++;
-            }
-        });
-        
-        // 合并统计 - 将stopped任务计入完成数
-        const totalCompleted = runningCompleted + localCompleted + stopped;
-        const totalError = runningError; // 本地任务没有error状态
-        const totalTasks = runningTasks.length + localTotal;
+        const totalCompleted = completed + stopped;
+        const totalTasks = realTasks.length;
         
         document.getElementById('running-count').textContent = running;
         document.getElementById('completed-count').textContent = totalCompleted; 
-        document.getElementById('error-count').textContent = totalError;
+        document.getElementById('error-count').textContent = error;
         document.getElementById('total-count').textContent = totalTasks;
     }
     
     function clearCompletedTasks() {
         if (confirm('确定要清理所有已完成的任务记录吗？这不会删除已下载的文件。')) {
-            // 实现清理已完成任务的逻辑
             showAlert('info', '已完成任务记录已清理');
             refreshAllTasks();
         }
@@ -614,7 +612,6 @@
             .then(data => {
                 if (data.success) {
                     showAlert('success', data.message);
-                    // 立即刷新任务状态
                     refreshAllTasks();
                 } else {
                     showAlert('danger', data.message);
@@ -664,22 +661,56 @@
         }
     }
     
-    // 监听任务更新
+    // WebSocket事件监听器
     socket.on('task_update', function(task) {
+        if (task.type === 'scan' && task.status === 'running') {
+            const progress = task.progress || 0;
+            const detail = task.progress_detail || {};
+            
+            document.getElementById('scan-progress-bar').style.width = progress + '%';
+            document.getElementById('scan-progress-text').textContent = 
+                `${detail.scanned_count || 0} / ${detail.total_dirs || 0}`;
+            document.getElementById('scan-current-dir').textContent = 
+                detail.current_dir ? `正在扫描: ${detail.current_dir}` : '扫描中...';
+        }
+        
         refreshAllTasks();
+    });
+    
+    socket.on('scan_task_found', function(task) {
+        addTaskToList(task);
+    });
+    
+    socket.on('scan_completed', function(data) {
+        resetScanUI();
+        
+        if (data.success) {
+            showAlert('success', `扫描完成，发现 ${data.tasks.length} 个有效任务`);
+            
+            if (data.tasks.length > allTasks.length) {
+                allTasks = data.tasks;
+                filteredTasks = [...allTasks];
+                displayLocalTasks(filteredTasks);
+                showTaskControls();
+            }
+            
+            fetch('/api/tasks')
+                .then(response => response.json())
+                .then(runningTasks => {
+                    updateTaskCounts(runningTasks);
+                })
+                .catch(error => {
+                    console.error('获取运行任务失败:', error);
+                });
+        } else {
+            showAlert('danger', data.message || '扫描失败');
+        }
     });
     
     // 页面加载时初始化
     document.addEventListener('DOMContentLoaded', function() {
         loadTasksConfigs();
         refreshAllTasks();
-        
-        // 延迟扫描，等待配置加载完成
-        setTimeout(function() {
-            scanAndDisplayTasks();
-        }, 500);
-        
-        // 定期刷新
         setInterval(refreshAllTasks, 3000);
     });
 </script>

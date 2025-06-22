@@ -574,6 +574,155 @@ def get_tasks():
     return jsonify(filtered_tasks)
 
 
+@app.route('/api/scan_tasks_with_progress', methods=['POST'])
+def scan_tasks_with_progress():
+    """扫描输出目录中的任务，支持实时进度更新"""
+    global task_counter
+    
+    data = request.get_json() or {}
+    output_dir = data.get('output_dir', '~/Downloads')
+    
+    task_counter += 1
+    task_id = f"scan_{task_counter}"
+    
+    # 记录扫描任务信息
+    current_tasks[task_id] = {
+        'id': task_id,
+        'type': 'scan',
+        'output_dir': output_dir,
+        'status': 'starting',
+        'start_time': time.time(),
+        'progress': 0,
+        'progress_detail': {
+            'current_dir': '',
+            'scanned_count': 0,
+            'total_dirs': 0,
+            'found_tasks': []
+        },
+        'should_stop': False,
+        'process': None,
+        'thread': None
+    }
+    
+    def run_scan():
+        try:
+            current_tasks[task_id]['status'] = 'running'
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+            
+            # 设置Logger回调
+            Logger.set_callback(create_web_logger_callback(task_id))
+            
+            scan_dir = Path(output_dir).expanduser()
+            if not scan_dir.exists():
+                raise Exception('目录不存在')
+            
+            # 创建BatchDownloader实例来使用筛选逻辑
+            downloader = BatchDownloader(output_dir=scan_dir)
+            
+            # 获取所有目录
+            all_dirs = [d for d in scan_dir.iterdir() if d.is_dir()]
+            total_dirs = len(all_dirs)
+            
+            current_tasks[task_id]['progress_detail']['total_dirs'] = total_dirs
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+            
+            Logger.info(f"开始扫描目录: {output_dir}")
+            Logger.info(f"发现 {total_dirs} 个子目录")
+            
+            tasks = []
+            
+            for i, task_dir in enumerate(all_dirs):
+                if current_tasks[task_id].get('should_stop', False):
+                    Logger.warning("扫描任务被手动停止")
+                    break
+                
+                # 更新进度
+                current_tasks[task_id]['progress_detail']['current_dir'] = task_dir.name
+                current_tasks[task_id]['progress_detail']['scanned_count'] = i + 1
+                current_tasks[task_id]['progress'] = int(((i + 1) / total_dirs) * 100)
+                socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+                
+                Logger.info(f"[{i+1}/{total_dirs}] 扫描目录: {task_dir.name}")
+                
+                try:
+                    # 使用新的筛选逻辑，只处理有效的任务目录
+                    if downloader._is_valid_task_directory(task_dir):
+                        csv_manager = CSVManager(task_dir)
+                        original_url = csv_manager.get_original_url()
+                        stats = csv_manager.get_download_stats()
+                        
+                        # 识别任务类型
+                        task_type = _identify_task_type(task_dir.name)
+                        
+                        task_info = {
+                            'name': task_dir.name,
+                            'path': str(task_dir),
+                            'url': original_url,
+                            'type': task_type,
+                            'total': stats['total'],
+                            'downloaded': stats['downloaded'],
+                            'pending': stats['pending']
+                        }
+                        
+                        tasks.append(task_info)
+                        current_tasks[task_id]['progress_detail']['found_tasks'].append(task_info)
+                        
+                        Logger.info(f"✅ 发现有效任务: {task_dir.name} ({task_type})")
+                        
+                        # 实时发送发现的任务
+                        socketio.emit('scan_task_found', task_info)
+                    else:
+                        Logger.debug(f"跳过无效目录: {task_dir.name}")
+                        
+                except Exception as e:
+                    Logger.error(f"扫描目录 {task_dir.name} 时出错: {e}")
+                    continue
+            
+            # 扫描完成
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning("扫描任务已停止")
+            else:
+                current_tasks[task_id]['status'] = 'completed'
+                current_tasks[task_id]['progress'] = 100
+                Logger.custom(f"扫描完成 - 发现 {len(tasks)} 个有效任务", "任务扫描")
+            
+            # 发送最终结果
+            socketio.emit('scan_completed', {
+                'success': True,
+                'tasks': tasks,
+                'task_id': task_id
+            })
+            
+        except Exception as e:
+            current_tasks[task_id]['status'] = 'error'
+            current_tasks[task_id]['error'] = str(e)
+            Logger.error(f"扫描任务失败: {e}")
+            
+            socketio.emit('scan_completed', {
+                'success': False,
+                'message': str(e),
+                'task_id': task_id
+            })
+        finally:
+            # 清除Logger回调
+            Logger.set_callback(None)
+            # 清理进程引用
+            current_tasks[task_id]['process'] = None
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+    
+    thread = threading.Thread(target=run_scan)
+    thread.daemon = True
+    current_tasks[task_id]['thread'] = thread
+    thread.start()
+    
+    return jsonify({
+        'success': True,
+        'message': '扫描任务已开始',
+        'task_id': task_id
+    })
+
+
 @app.route('/api/scan_tasks')
 def scan_tasks():
     """扫描输出目录中的任务"""
