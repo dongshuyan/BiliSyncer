@@ -451,10 +451,14 @@ def scan_tasks():
                 original_url = csv_manager.get_original_url()
                 stats = csv_manager.get_download_stats()
                 
+                # 识别任务类型
+                task_type = _identify_task_type(task_dir.name)
+                
                 tasks.append({
                     'name': task_dir.name,
                     'path': str(task_dir),
                     'url': original_url,
+                    'type': task_type,
                     'total': stats['total'],
                     'downloaded': stats['downloaded'],
                     'pending': stats['pending']
@@ -464,6 +468,26 @@ def scan_tasks():
         
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
+
+
+def _identify_task_type(dir_name: str) -> str:
+    """根据目录名识别任务类型"""
+    if dir_name.startswith('投稿视频-'):
+        return '投稿视频'
+    elif dir_name.startswith('番剧-'):
+        return '番剧'
+    elif dir_name.startswith('收藏夹-'):
+        return '收藏夹'
+    elif dir_name.startswith('视频列表-'):
+        return '视频列表'
+    elif dir_name.startswith('视频合集-'):
+        return '视频合集'
+    elif dir_name.startswith('UP主-'):
+        return 'UP主'
+    elif dir_name.startswith('稍后再看-'):
+        return '稍后再看'
+    else:
+        return '未知'
 
 
 @socketio.on('connect')

@@ -99,6 +99,51 @@
                 </h5>
             </div>
             <div class="card-body">
+                <!-- 过滤和排序控制 -->
+                <div class="row mb-3" id="task-controls" style="display: none;">
+                    <div class="col-md-3">
+                        <label for="task-filter" class="form-label small">过滤任务</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="task-filter" placeholder="输入关键词...">
+                            <button class="btn btn-outline-secondary" type="button" onclick="filterTasks()">
+                                <i class="bi bi-funnel"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary" type="button" onclick="clearFilter()">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="task-sort" class="form-label small">排序方式</label>
+                        <select class="form-select form-select-sm" id="task-sort" onchange="sortTasks()">
+                            <option value="name-asc">名称 (A-Z)</option>
+                            <option value="name-desc">名称 (Z-A)</option>
+                            <option value="type-asc">类型 (A-Z)</option>
+                            <option value="type-desc">类型 (Z-A)</option>
+                            <option value="progress-asc">进度 (低-高)</option>
+                            <option value="progress-desc">进度 (高-低)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="type-filter" class="form-label small">任务类型</label>
+                        <select class="form-select form-select-sm" id="type-filter" onchange="filterByType()">
+                            <option value="">全部类型</option>
+                            <option value="投稿视频">投稿视频</option>
+                            <option value="番剧">番剧</option>
+                            <option value="收藏夹">收藏夹</option>
+                            <option value="视频列表">视频列表</option>
+                            <option value="视频合集">视频合集</option>
+                            <option value="UP主">UP主</option>
+                            <option value="稍后再看">稍后再看</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button class="btn btn-outline-primary btn-sm w-100" onclick="resetFilters()">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>重置
+                        </button>
+                    </div>
+                </div>
+                
                 <div id="local-tasks">
                     <div class="text-muted text-center py-4">点击"扫描本地任务"来查看已存在的任务</div>
                 </div>
@@ -128,6 +173,7 @@
 {% block scripts %}
 <script>
     let allTasks = [];
+    let filteredTasks = [];
     let tasksAvailableConfigs = [];
     
     function loadTasksConfigs() {
@@ -160,7 +206,7 @@
             .then(response => response.json())
             .then(tasks => {
                 displayRunningTasks(tasks);
-                updateTaskCounts(tasks, allTasks); // 传入本地任务数据
+                updateTaskCounts(tasks, filteredTasks); // 使用过滤后的任务数据
             })
             .catch(error => {
                 console.error('刷新运行任务失败:', error);
@@ -180,12 +226,14 @@
             .then(data => {
                 if (data.success) {
                     allTasks = data.tasks;
-                    displayLocalTasks(data.tasks);
+                    filteredTasks = [...allTasks]; // 初始化过滤后的任务列表
+                    displayLocalTasks(filteredTasks);
+                    showTaskControls(); // 显示过滤和排序控制
                     // 扫描完本地任务后，重新统计总数
                     fetch('/api/tasks')
                         .then(response => response.json())
                         .then(runningTasks => {
-                            updateTaskCounts(runningTasks, allTasks);
+                            updateTaskCounts(runningTasks, filteredTasks);
                         })
                         .catch(error => {
                             console.error('获取运行任务失败:', error);
@@ -197,6 +245,167 @@
             .catch(error => {
                 showAlert('danger', '扫描失败: ' + error.message);
             });
+    }
+    
+    function showTaskControls() {
+        document.getElementById('task-controls').style.display = 'block';
+    }
+    
+    function hideTaskControls() {
+        document.getElementById('task-controls').style.display = 'none';
+    }
+    
+    function getTypeIcon(type) {
+        const icons = {
+            '投稿视频': 'bi-play-btn',
+            '番剧': 'bi-tv',
+            '收藏夹': 'bi-star',
+            '视频列表': 'bi-list-ul',
+            '视频合集': 'bi-collection',
+            'UP主': 'bi-person-circle',
+            '稍后再看': 'bi-clock',
+            '未知': 'bi-question-circle'
+        };
+        return icons[type] || 'bi-question-circle';
+    }
+    
+    function getTypeColor(type) {
+        const colors = {
+            '投稿视频': 'primary',
+            '番剧': 'success',
+            '收藏夹': 'warning',
+            '视频列表': 'info',
+            '视频合集': 'secondary',
+            'UP主': 'danger',
+            '稍后再看': 'dark',
+            '未知': 'muted'
+        };
+        return colors[type] || 'muted';
+    }
+    
+    function displayLocalTasks(tasks) {
+        const container = document.getElementById('local-tasks');
+        
+        if (tasks.length === 0) {
+            container.innerHTML = '<div class="text-muted text-center py-4">未找到任何任务文件夹</div>';
+            hideTaskControls();
+            return;
+        }
+        
+        container.innerHTML = tasks.map((task, index) => `
+            <div class="task-card card mb-3">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-${getTypeColor(task.type)} me-2">
+                                    <i class="${getTypeIcon(task.type)} me-1"></i>${task.type}
+                                </span>
+                            </div>
+                            <h6 class="mb-1">${task.name}</h6>
+                            <small class="text-muted">${task.path}</small>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-link-45deg me-2 text-primary"></i>
+                                <span class="text-truncate" style="max-width: 250px;" title="${task.url || '未知URL'}">
+                                    ${task.url || '未知URL'}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="text-center">
+                                <div class="progress mb-1" style="height: 8px;">
+                                    <div class="progress-bar ${task.pending > 0 ? 'bg-warning' : 'bg-success'}" 
+                                         style="width: ${task.total > 0 ? (task.downloaded / task.total * 100) : 0}%">
+                                    </div>
+                                </div>
+                                <small class="text-muted">
+                                    ${task.downloaded}/${task.total}
+                                </small>
+                            </div>
+                        </div>
+                        <div class="col-md-2 text-end">
+                            <button class="btn btn-sm btn-outline-info" onclick="viewTaskDetail(${allTasks.indexOf(task)})">
+                                <i class="bi bi-eye me-1"></i>详情
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    function filterTasks() {
+        const filterText = document.getElementById('task-filter').value.toLowerCase();
+        const typeFilter = document.getElementById('type-filter').value;
+        
+        filteredTasks = allTasks.filter(task => {
+            const matchesText = !filterText || task.name.toLowerCase().includes(filterText);
+            const matchesType = !typeFilter || task.type === typeFilter;
+            return matchesText && matchesType;
+        });
+        
+        sortTasks();
+    }
+    
+    function filterByType() {
+        filterTasks();
+    }
+    
+    function clearFilter() {
+        document.getElementById('task-filter').value = '';
+        filterTasks();
+    }
+    
+    function sortTasks() {
+        const sortBy = document.getElementById('task-sort').value;
+        const [field, order] = sortBy.split('-');
+        
+        filteredTasks.sort((a, b) => {
+            let valueA, valueB;
+            
+            switch (field) {
+                case 'name':
+                    valueA = a.name.toLowerCase();
+                    valueB = b.name.toLowerCase();
+                    break;
+                case 'type':
+                    valueA = a.type.toLowerCase();
+                    valueB = b.type.toLowerCase();
+                    break;
+                case 'progress':
+                    valueA = a.total > 0 ? (a.downloaded / a.total) : 0;
+                    valueB = b.total > 0 ? (b.downloaded / b.total) : 0;
+                    break;
+                default:
+                    return 0;
+            }
+            
+            if (valueA < valueB) return order === 'asc' ? -1 : 1;
+            if (valueA > valueB) return order === 'asc' ? 1 : -1;
+            return 0;
+        });
+        
+        displayLocalTasks(filteredTasks);
+        
+        // 更新统计
+        fetch('/api/tasks')
+            .then(response => response.json())
+            .then(runningTasks => {
+                updateTaskCounts(runningTasks, filteredTasks);
+            })
+            .catch(error => {
+                console.error('获取运行任务失败:', error);
+            });
+    }
+    
+    function resetFilters() {
+        document.getElementById('task-filter').value = '';
+        document.getElementById('type-filter').value = '';
+        document.getElementById('task-sort').value = 'name-asc';
+        filteredTasks = [...allTasks];
+        sortTasks();
     }
     
     function displayRunningTasks(tasks) {
@@ -268,63 +477,23 @@
         `).join('');
     }
     
-    function displayLocalTasks(tasks) {
-        const container = document.getElementById('local-tasks');
-        
-        if (tasks.length === 0) {
-            container.innerHTML = '<div class="text-muted text-center py-4">未找到任何任务文件夹</div>';
-            return;
-        }
-        
-        container.innerHTML = tasks.map((task, index) => `
-            <div class="task-card card mb-3">
-                <div class="card-body">
-                    <div class="row align-items-center">
-                        <div class="col-md-4">
-                            <h6 class="mb-1">${task.name}</h6>
-                            <small class="text-muted">${task.path}</small>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="d-flex align-items-center">
-                                <i class="bi bi-link-45deg me-2 text-primary"></i>
-                                <span class="text-truncate" style="max-width: 250px;" title="${task.url || '未知URL'}">
-                                    ${task.url || '未知URL'}
-                                </span>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            <div class="text-center">
-                                <div class="progress mb-1" style="height: 8px;">
-                                    <div class="progress-bar ${task.pending > 0 ? 'bg-warning' : 'bg-success'}" 
-                                         style="width: ${task.total > 0 ? (task.downloaded / task.total * 100) : 0}%">
-                                    </div>
-                                </div>
-                                <small class="text-muted">
-                                    ${task.downloaded}/${task.total}
-                                </small>
-                            </div>
-                        </div>
-                        <div class="col-md-2 text-end">
-                            <button class="btn btn-sm btn-outline-info" onclick="viewTaskDetail(${index})">
-                                <i class="bi bi-eye me-1"></i>详情
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-    }
-    
     function viewTaskDetail(taskIndex) {
         const task = allTasks[taskIndex];
         
-        // 这里可以实现查看CSV详情的功能
-        // 暂时显示基本信息
+        // 显示任务详情，包括类型信息
         document.getElementById('csv-detail-content').innerHTML = `
             <div class="row">
                 <div class="col-md-6">
                     <h6>任务信息</h6>
                     <table class="table table-sm">
+                        <tr>
+                            <td>任务类型:</td>
+                            <td>
+                                <span class="badge bg-${getTypeColor(task.type)}">
+                                    <i class="${getTypeIcon(task.type)} me-1"></i>${task.type}
+                                </span>
+                            </td>
+                        </tr>
                         <tr><td>任务名称:</td><td>${task.name}</td></tr>
                         <tr><td>任务路径:</td><td>${task.path}</td></tr>
                         <tr><td>原始URL:</td><td class="text-break">${task.url || '未知'}</td></tr>
@@ -344,6 +513,17 @@
                         <i class="bi bi-info-circle me-1"></i>
                         详细的视频列表信息存储在任务文件夹的CSV文件中
                     </p>
+                    ${task.pending > 0 ? `
+                        <div class="alert alert-warning py-2">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            还有 ${task.pending} 个视频待下载
+                        </div>
+                    ` : `
+                        <div class="alert alert-success py-2">
+                            <i class="bi bi-check-circle me-1"></i>
+                            所有视频已下载完成
+                        </div>
+                    `}
                 </div>
             </div>
         `;
