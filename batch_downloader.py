@@ -263,6 +263,208 @@ class BatchDownloader:
             
             raise  # 重新抛出异常，让调用者处理
     
+    async def delete_all_tasks(self) -> None:
+        """删除所有任务的视频文件：扫描输出目录下的所有任务并删除视频文件，保留CSV记录"""
+        try:
+            # 扫描所有一级子目录
+            all_dirs = [d for d in self.output_dir.iterdir() if d.is_dir()]
+            
+            if not all_dirs:
+                Logger.info("未找到任何目录")
+                return
+            
+            # 筛选符合条件的任务目录
+            task_dirs = []
+            invalid_dirs = []
+            
+            for dir_path in all_dirs:
+                if self._is_valid_task_directory(dir_path):
+                    task_dirs.append(dir_path)
+                else:
+                    invalid_dirs.append(dir_path)
+                    Logger.debug(f"跳过不符合条件的目录: {dir_path.name}")
+            
+            if invalid_dirs:
+                Logger.info(f"跳过 {len(invalid_dirs)} 个不符合条件的目录")
+            
+            if not task_dirs:
+                Logger.info("未找到符合条件的任务目录")
+                return
+            
+            Logger.info(f"发现 {len(task_dirs)} 个任务目录")
+            
+            deleted_count = 0
+            error_count = 0
+            
+            for task_dir in task_dirs:
+                Logger.info(f"删除任务目录视频文件: {task_dir.name}")
+                
+                try:
+                    self._delete_single_task_directory(task_dir)
+                    deleted_count += 1
+                    Logger.info(f"✅ 任务删除成功: {task_dir.name}")
+                    
+                except Exception as e:
+                    error_count += 1
+                    error_type = type(e).__name__
+                    Logger.error(f"❌ 删除任务失败 {task_dir.name} ({error_type}): {e}")
+                    
+                    # 根据错误类型提供更具体的建议
+                    if "permission" in str(e).lower():
+                        Logger.warning(f"   建议：检查 {task_dir.name} 目录的读写权限")
+                    elif "not found" in str(e).lower():
+                        Logger.warning(f"   建议：检查 {task_dir.name} 目录是否存在")
+                    
+                    # 继续处理下一个任务，不中断整个批量操作
+                    continue
+            
+            # 显示详细的完成统计
+            total_tasks = len(task_dirs)
+            Logger.custom(f"批量删除完成 - 成功: {deleted_count}, 失败: {error_count}, 总计: {total_tasks}", "批量删除")
+            
+            if error_count > 0:
+                Logger.warning(f"有 {error_count} 个任务删除失败，请检查上述错误信息")
+            
+        except Exception as e:
+            Logger.error(f"批量删除失败: {e}")
+            raise
+    
+    async def delete_single_task(self, task_directory: Path) -> None:
+        """定向删除单个任务目录的视频文件，保留CSV记录"""
+        try:
+            # 验证任务目录是否存在
+            if not task_directory.exists():
+                Logger.error(f"指定的任务目录不存在: {task_directory}")
+                return
+            
+            if not task_directory.is_dir():
+                Logger.error(f"指定的路径不是目录: {task_directory}")
+                return
+            
+            # 验证是否为有效的任务目录
+            if not self._is_valid_task_directory(task_directory):
+                Logger.error(f"指定的目录不是有效的任务目录: {task_directory}")
+                Logger.error("有效的任务目录应该：")
+                Logger.error("1. 以特定前缀开头（投稿视频-、番剧-、收藏夹-、视频列表-、视频合集-、UP主-、稍后再看-）")
+                Logger.error("2. 包含格式为 yy-mm-dd-hh-mm.csv 的CSV文件")
+                Logger.error("3. CSV文件包含有效的原始URL")
+                return
+            
+            Logger.info(f"开始删除任务目录的视频文件: {task_directory.name}")
+            
+            # 使用共同的删除逻辑
+            self._delete_single_task_directory(task_directory)
+            Logger.custom(f"✅ 任务删除成功: {task_directory.name}", "定向删除")
+            
+        except Exception as e:
+            error_type = type(e).__name__
+            Logger.error(f"❌ 删除任务失败 {task_directory.name} ({error_type}): {e}")
+            
+            # 根据错误类型提供更具体的建议
+            if "permission" in str(e).lower():
+                Logger.warning(f"   建议：检查 {task_directory.name} 目录的读写权限")
+            elif "not found" in str(e).lower():
+                Logger.warning(f"   建议：检查 {task_directory.name} 目录是否存在")
+            
+            raise  # 重新抛出异常，让调用者处理
+    
+    def _delete_single_task_directory(self, task_dir: Path) -> None:
+        """删除单个任务目录的视频文件，保留CSV记录的核心逻辑"""
+        import re
+        
+        # 验证任务目录
+        if not self._is_valid_task_directory(task_dir):
+            raise Exception(f"目录 {task_dir.name} 不是有效的任务目录")
+        
+        Logger.info(f"正在删除目录 {task_dir.name} 中的视频文件...")
+        
+        # 找到CSV文件
+        csv_pattern = re.compile(r'^\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.csv$')
+        csv_files = [f for f in task_dir.iterdir() 
+                    if f.is_file() and f.suffix == '.csv' and csv_pattern.match(f.name)]
+        
+        if not csv_files:
+            raise Exception(f"目录 {task_dir.name} 中未找到有效的CSV文件")
+        
+        csv_file = csv_files[0]  # 使用第一个找到的CSV文件
+        Logger.info(f"保护CSV文件: {csv_file.name}")
+        
+        # 统计需要删除的项目
+        items_to_delete = []
+        for item in task_dir.iterdir():
+            if item.name != csv_file.name:
+                items_to_delete.append(item)
+        
+        if not items_to_delete:
+            Logger.info("目录中除CSV文件外没有其他文件，无需删除")
+            return
+        
+        Logger.info(f"准备删除 {len(items_to_delete)} 个项目:")
+        
+        deleted_items = 0
+        deleted_size = 0
+        
+        # 遍历并删除项目
+        for item in items_to_delete:
+            Logger.info(f"  - {item.name} ({'文件' if item.is_file() else '目录'})")
+            
+            try:
+                if item.is_file():
+                    # 删除文件
+                    file_size = item.stat().st_size
+                    item.unlink()
+                    deleted_items += 1
+                    deleted_size += file_size
+                    Logger.info(f"✅ 删除文件: {item.name}")
+                    
+                elif item.is_dir():
+                    # 删除目录及其内容
+                    dir_size = self._get_directory_size(item)
+                    # 使用更强力的删除方法处理只读文件
+                    try:
+                        shutil.rmtree(item)
+                    except OSError:
+                        # 如果普通删除失败，尝试修改权限后删除
+                        shutil.rmtree(item, onerror=self._remove_readonly)
+                    deleted_items += 1
+                    deleted_size += dir_size
+                    Logger.info(f"✅ 删除目录: {item.name}")
+                    
+            except Exception as e:
+                Logger.error(f"❌ 删除 {item.name} 失败: {e}")
+                continue
+        
+        # 格式化文件大小
+        size_str = self._format_file_size(deleted_size)
+        Logger.info(f"删除完成: {deleted_items} 个项目，释放空间 {size_str}")
+        Logger.info(f"保留CSV文件: {csv_file.name}")
+    
+    def _get_directory_size(self, directory: Path) -> int:
+        """计算目录大小（字节）"""
+        total_size = 0
+        try:
+            for item in directory.rglob('*'):
+                if item.is_file():
+                    try:
+                        total_size += item.stat().st_size
+                    except (OSError, IOError):
+                        continue
+        except Exception:
+            pass
+        return total_size
+    
+    def _format_file_size(self, size_bytes: int) -> str:
+        """格式化文件大小显示"""
+        if size_bytes == 0:
+            return "0 B"
+        
+        size_names = ["B", "KB", "MB", "GB", "TB"]
+        import math
+        i = int(math.floor(math.log(size_bytes, 1024)))
+        p = math.pow(1024, i)
+        s = round(size_bytes / p, 2)
+        return f"{s} {size_names[i]}"
+    
     async def _update_single_task_directory(self, task_dir: Path) -> None:
         """更新单个任务目录的核心逻辑"""
         async with self.fetcher:
