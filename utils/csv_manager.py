@@ -97,10 +97,16 @@ class CSVManager:
                     if str(cid_value) == "0":
                         cid_value = ""
                     
-                    # 处理video_url - 番剧视频使用标准B站URL格式
+                    # 处理video_url - 番剧/课程视频使用标准B站URL格式
                     if "episode_id" in video:
-                        # 番剧视频使用标准的B站URL格式
-                        video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
+                        # 根据视频路径判断是课程还是番剧
+                        video_path = str(video.get('path', ''))
+                        if video_path.startswith('课程-') or '课程-' in video_path:
+                            # 课程视频使用cheese URL格式
+                            video_url = f"https://www.bilibili.com/cheese/play/ep{video['episode_id']}"
+                        else:
+                            # 番剧视频使用bangumi URL格式
+                            video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
                         avid_str = video.get('episode_id', '')
                     else:
                         # 普通视频使用avid
@@ -113,7 +119,7 @@ class CSVManager:
                         'video_url': video_url,
                         'title': video['title'],
                         'name': video['name'],
-                        'download_path': str(video['path']),
+                        'download_path': str(Path(video['path']).resolve()),
                         'downloaded': 'True' if is_unavailable else 'False',
                         'avid': avid_str,
                         'cid': str(cid_value),
@@ -181,10 +187,16 @@ class CSVManager:
                     if str(cid_value) == "0":
                         cid_value = ""
                     
-                    # 处理video_url - 番剧视频使用标准B站URL格式
+                    # 处理video_url - 番剧/课程视频使用标准B站URL格式
                     if "episode_id" in video:
-                        # 番剧视频使用标准的B站URL格式
-                        video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
+                        # 根据视频路径判断是课程还是番剧
+                        video_path = str(video.get('path', ''))
+                        if video_path.startswith('课程-') or '课程-' in video_path:
+                            # 课程视频使用cheese URL格式
+                            video_url = f"https://www.bilibili.com/cheese/play/ep{video['episode_id']}"
+                        else:
+                            # 番剧视频使用bangumi URL格式
+                            video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
                         avid_str = video.get('episode_id', '')
                     else:
                         # 普通视频使用avid
@@ -197,7 +209,7 @@ class CSVManager:
                         'video_url': video_url,
                         'title': video['title'],
                         'name': video['name'],
-                        'download_path': str(video['path']),
+                        'download_path': str(Path(video['path']).resolve()),
                         'downloaded': 'True' if is_unavailable else 'False',
                         'avid': avid_str,
                         'cid': str(cid_value),

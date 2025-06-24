@@ -991,6 +991,8 @@ def _identify_task_type(dir_name: str) -> str:
         return '投稿视频'
     elif dir_name.startswith('番剧-'):
         return '番剧'
+    elif dir_name.startswith('课程-'):
+        return '课程'
     elif dir_name.startswith('收藏夹-'):
         return '收藏夹'
     elif dir_name.startswith('视频列表-'):

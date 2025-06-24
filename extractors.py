@@ -13,7 +13,8 @@ from api.bilibili import (
     get_favourite_avids, get_favourite_info, get_user_space_videos,
     get_series_videos, get_watch_later_avids, get_bangumi_list,
     get_season_id_by_media_id, get_season_id_by_episode_id, get_user_name,
-    get_ugc_video_list, get_bangumi_episode_list, get_bangumi_episode_info
+    get_ugc_video_list, get_bangumi_episode_list, get_bangumi_episode_info,
+    get_cheese_episode_list, get_cheese_season_id_by_episode_id
 )
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
@@ -312,6 +313,58 @@ class WatchLaterExtractor(URLExtractor):
         return {"title": folder_name, "videos": videos}
 
 
+class CheeseExtractor(URLExtractor):
+    """课程提取器（批量下载所有课时）"""
+    
+    REGEX_EP = re.compile(r"https?://www\.bilibili\.com/cheese/play/ep(?P<episode_id>\d+)")
+    REGEX_SS = re.compile(r"https?://www\.bilibili\.com/cheese/play/ss(?P<season_id>\d+)")
+    
+    def match(self, url: str) -> bool:
+        """检查URL是否匹配"""
+        return bool(self.REGEX_EP.match(url) or self.REGEX_SS.match(url))
+    
+    async def extract(self, fetcher: Fetcher, url: str) -> VideoListData:
+        """提取课程视频列表"""
+        # 解析不同类型的URL获取season_id
+        season_id = await self._parse_season_id(fetcher, url)
+        Logger.info(f"提取课程: {season_id}")
+        
+        # 获取课程标题和课时ID列表（仅获取ID，不获取详细信息）
+        course_title, episode_ids = await get_cheese_episode_list(fetcher, season_id)
+        
+        # 修改文件夹命名格式：课程-课程编号-课程名
+        folder_name = f"课程-{season_id}-{course_title}"
+        
+        videos = []
+        for i, episode_id in enumerate(episode_ids):
+            # 创建占位符视频条目，下载时再获取详细信息
+            video = {
+                "avid": AId("1"),  # 占位符，下载时再获取
+                "cid": CId("0"),  # 占位符，下载时再获取
+                "title": "",  # 空标题，下载时再获取
+                "name": "",   # 空名称，下载时再获取
+                "pubdate": 0, # 课程没有pubdate概念
+                "author": "", # 空作者，下载时再获取
+                "duration": 0, # 空时长，下载时再获取
+                "path": Path(f"{folder_name}/第{i+1}课时"),  # 临时路径，下载时会更新
+                "status": "pending",  # 标记为待处理，需要下载时再获取详细信息
+                "episode_id": episode_id  # 保存episode_id用于后续获取详细信息
+            }
+            videos.append(video)
+        
+        return {"title": folder_name, "videos": videos}
+    
+    async def _parse_season_id(self, fetcher: Fetcher, url: str) -> str:
+        """根据URL类型获取season_id"""
+        if match_obj := self.REGEX_EP.match(url):
+            episode_id = match_obj.group("episode_id")
+            return await get_cheese_season_id_by_episode_id(fetcher, episode_id)
+        elif match_obj := self.REGEX_SS.match(url):
+            return match_obj.group("season_id")
+        else:
+            raise ValueError(f"无法解析课程URL: {url}")
+
+
 # 提取器列表（按优先级排序）
 EXTRACTORS = [
     UgcVideoExtractor(),       # 投稿视频
@@ -320,6 +373,7 @@ EXTRACTORS = [
     SeriesExtractor(),         # 视频列表/合集
     WatchLaterExtractor(),     # 稍后再看
     UserSpaceExtractor(),      # 用户空间（放在最后，因为正则最宽泛）
+    CheeseExtractor(),          # 课程
 ]
 
 

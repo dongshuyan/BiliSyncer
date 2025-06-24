@@ -758,3 +758,76 @@ async def get_bangumi_episode_info(fetcher: Fetcher, episode_id: str) -> Dict[st
         "episode_id": episode_id,
         "is_preview": current_episode.get("badge") == "预告"
     } 
+
+
+# 课程(Cheese)相关API
+async def get_cheese_season_id_by_episode_id(fetcher: Fetcher, episode_id: str) -> str:
+    """通过episode_id获取课程的season_id"""
+    home_url = f"https://api.bilibili.com/pugv/view/web/season?ep_id={episode_id}"
+    res_json = await fetcher.fetch_json(home_url)
+    
+    if not res_json or res_json.get("code") != 0:
+        raise Exception(f"无法获取课程信息，episode_id: {episode_id}")
+    
+    return str(res_json["data"]["season_id"])
+
+
+async def get_cheese_episode_list(fetcher: Fetcher, season_id: str) -> Tuple[str, List[str]]:
+    """获取课程剧集ID列表（仅获取ID，不获取详细信息）"""
+    list_api = f"https://api.bilibili.com/pugv/view/web/season?season_id={season_id}"
+    resp_json = await fetcher.fetch_json(list_api)
+    
+    if not resp_json:
+        raise Exception(f"无法解析该课程列表，season_id: {season_id}")
+    if resp_json.get("data") is None:
+        raise Exception(f"无法解析该课程列表，season_id: {season_id}，原因：{resp_json.get('message')}")
+    
+    result = resp_json["data"]
+    
+    # 获取课程剧集ID列表
+    episode_ids = []
+    for item in result["episodes"]:
+        episode_ids.append(str(item["id"]))  # 使用episode_id
+    
+    course_title = result["title"]
+    Logger.info(f"课程 {course_title} 共获取到 {len(episode_ids)} 个课时ID")
+    
+    return course_title, episode_ids
+
+
+async def get_cheese_episode_info(fetcher: Fetcher, episode_id: str) -> Dict[str, Any]:
+    """获取单个课程课时的详细信息"""
+    # 先获取season_id
+    season_id = await get_cheese_season_id_by_episode_id(fetcher, episode_id)
+    
+    # 通过season_id获取课程详细信息
+    episode_api = f"https://api.bilibili.com/pugv/view/web/season?season_id={season_id}"
+    resp_json = await fetcher.fetch_json(episode_api)
+    
+    if not resp_json or resp_json.get("data") is None:
+        raise Exception(f"无法获取课时 {episode_id} 的详细信息")
+    
+    result = resp_json["data"]
+    
+    # 查找当前课时
+    current_episode = None
+    for episode in result["episodes"]:
+        if str(episode["id"]) == episode_id:
+            current_episode = episode
+            break
+    
+    if not current_episode:
+        raise Exception(f"无法找到课时 {episode_id} 的信息")
+    
+    episode_title = current_episode["title"]
+    
+    return {
+        "avid": AId(str(current_episode["aid"])),
+        "cid": CId(str(current_episode["cid"])),
+        "title": episode_title,
+        "name": episode_title,
+        "pubdate": 0,  # 课程没有pubdate概念
+        "author": result.get("up_info", {}).get("uname", ""),
+        "duration": 0,  # 课程duration需要从播放页面获取
+        "episode_id": episode_id
+    } 

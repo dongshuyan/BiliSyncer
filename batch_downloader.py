@@ -16,7 +16,7 @@ from utils.fetcher import Fetcher
 from utils.logger import Logger
 from utils.csv_manager import CSVManager
 from extractors import extract_video_list
-from api.bilibili import get_ugc_video_list, get_bangumi_episode_info
+from api.bilibili import get_ugc_video_list, get_bangumi_episode_info, get_cheese_episode_info
 
 
 class BatchDownloader:
@@ -592,6 +592,7 @@ class BatchDownloader:
         # 5. 视频合集-视频合集ID-视频合集名
         # 6. UP主-UP主UID-UP主名
         # 7. 稍后再看-watchlater-稍后再看
+        # 8. 课程-课程编号-课程名
         valid_prefixes = [
             '投稿视频-', 
             '番剧-', 
@@ -599,7 +600,8 @@ class BatchDownloader:
             '视频列表-',
             '视频合集-',
             'UP主-',
-            '稍后再看-'
+            '稍后再看-',
+            '课程-'
         ]
         
         # 检查是否以有效前缀开头
@@ -696,8 +698,14 @@ class BatchDownloader:
     def _get_video_url(self, video: VideoInfo) -> str:
         """获取视频URL"""
         if "episode_id" in video:
-            # 番剧视频使用标准的B站URL格式，与CSV保存格式一致
-            return f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
+            # 根据视频路径判断是番剧还是课程
+            main_folder = str(video["path"]).split("/")[0]
+            if main_folder.startswith("课程-"):
+                # 课程视频使用课程URL格式
+                return f"https://www.bilibili.com/cheese/play/ep{video['episode_id']}"
+            else:
+                # 番剧视频使用标准的B站URL格式，与CSV保存格式一致
+                return f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
         else:
             # 普通视频使用avid
             return video['avid'].to_url()
@@ -710,30 +718,56 @@ class BatchDownloader:
         try:
             # 使用正确的异步上下文管理器语法
             async with Fetcher(sessdata=self.sessdata) as fetcher:
-                # 判断是否为番剧视频
+                # 判断是否为番剧或课程视频
                 episode_id = video.get("episode_id")
                 if episode_id:
-                    # 番剧视频，使用episode_id获取详细信息
-                    Logger.info(f"获取番剧剧集 {episode_id} 的详细信息...")
-                    episode_info = await get_bangumi_episode_info(fetcher, episode_id)
-                    
-                    # 获取番剧主文件夹名（保持原来的番剧-编号-名称格式）
+                    # 获取主文件夹名（保持原来的类型-编号-名称格式）
                     main_folder = str(video["path"]).split("/")[0]
                     
-                    # 生成番剧视频的文件夹名：视频号-标题
-                    video_folder_name = f"{episode_info['avid']}-{episode_info['name']}"
-                    
-                    # 更新视频信息
-                    video.update({
-                        "avid": episode_info["avid"],
-                        "cid": episode_info["cid"],
-                        "title": episode_info["title"],
-                        "name": episode_info["name"],
-                        "author": episode_info["author"],
-                        "duration": episode_info["duration"],
-                        "path": Path(main_folder) / video_folder_name,  # 主文件夹/视频号-标题
-                        "status": "ready"
-                    })
+                    # 根据主文件夹类型判断是番剧还是课程
+                    if main_folder.startswith("番剧-"):
+                        # 番剧视频，使用episode_id获取详细信息
+                        Logger.info(f"获取番剧剧集 {episode_id} 的详细信息...")
+                        episode_info = await get_bangumi_episode_info(fetcher, episode_id)
+                        
+                        # 生成番剧视频的文件夹名：视频号-标题
+                        video_folder_name = f"{episode_info['avid']}-{episode_info['name']}"
+                        
+                        # 更新视频信息
+                        video.update({
+                            "avid": episode_info["avid"],
+                            "cid": episode_info["cid"],
+                            "title": episode_info["title"],
+                            "name": episode_info["name"],
+                            "author": episode_info["author"],
+                            "duration": episode_info["duration"],
+                            "path": Path(main_folder) / video_folder_name,  # 主文件夹/视频号-标题
+                            "status": "ready"
+                        })
+                        
+                        Logger.info(f"已获取并保存番剧剧集 {episode_id} 的详细信息: {episode_info['name']}")
+                        
+                    elif main_folder.startswith("课程-"):
+                        # 课程视频，使用episode_id获取详细信息
+                        Logger.info(f"获取课程课时 {episode_id} 的详细信息...")
+                        episode_info = await get_cheese_episode_info(fetcher, episode_id)
+                        
+                        # 生成课程视频的文件夹名：视频号-标题
+                        video_folder_name = f"{episode_info['avid']}-{episode_info['name']}"
+                        
+                        # 更新视频信息
+                        video.update({
+                            "avid": episode_info["avid"],
+                            "cid": episode_info["cid"],
+                            "title": episode_info["title"],
+                            "name": episode_info["name"],
+                            "author": episode_info["author"],
+                            "duration": episode_info["duration"],
+                            "path": Path(main_folder) / video_folder_name,  # 主文件夹/视频号-标题
+                            "status": "ready"
+                        })
+                        
+                        Logger.info(f"已获取并保存课程课时 {episode_id} 的详细信息: {episode_info['name']}")
                     
                     # 立即更新CSV文件中的详细信息
                     video_url = self._get_video_url(video)
@@ -745,8 +779,6 @@ class BatchDownloader:
                             "download_path": str(video["path"]),
                             "status": "ready"
                         })
-                    
-                    Logger.info(f"已获取并保存番剧剧集 {episode_id} 的详细信息: {episode_info['name']}")
                 else:
                     # 投稿视频，使用原有逻辑获取详细信息
                     detailed_video_data = await get_ugc_video_list(fetcher, avid)
@@ -910,6 +942,10 @@ class BatchDownloader:
             pending_videos = []
         video_urls_pending = [v['video_url'] for v in pending_videos]
         
+        # 添加调试信息
+        Logger.debug(f"当前视频URL: {video_url}")
+        Logger.debug(f"待下载URL列表: {video_urls_pending[:3]}...")  # 只显示前3个避免太长
+        
         if video_url not in video_urls_pending:
             Logger.info(f"视频 {avid} 已下载，跳过")
             return True
@@ -927,15 +963,29 @@ class BatchDownloader:
         # 构建yutto命令
         yutto_cmd = ["yutto"]
         
-        # 视频URL - 番剧视频需要使用实际的avid
-        actual_video_url = video['avid'].to_url()
+        # 视频URL - 对于课程和番剧，需要使用原始URL而不是avid
+        if "episode_id" in video:
+            # 使用原始的课程或番剧URL
+            actual_video_url = video_url  # 使用CSV中保存的原始URL
+        else:
+            # 普通视频使用avid URL
+            actual_video_url = video['avid'].to_url()
         yutto_cmd.append(actual_video_url)
         
-        # 检查是否为多P视频，如果是则添加-b参数
-        if video.get('is_multi_part', False):
+        # 检查是否需要使用批量下载模式(-b参数)
+        video_path = video.get('path', Path(f"{avid}"))
+        if isinstance(video_path, str):
+            video_path = Path(video_path)
+        main_folder = str(video_path).split("/")[0]
+        
+        # 课程和多P视频都需要使用批量下载模式
+        if main_folder.startswith("课程-") or video.get('is_multi_part', False):
             yutto_cmd.append("-b")
-            total_parts = video.get('total_parts', 1)
-            Logger.info(f"检测到多P视频，使用批量下载模式 (共{total_parts}P)")
+            if main_folder.startswith("课程-"):
+                Logger.info(f"检测到课程，使用批量下载模式")
+            else:
+                total_parts = video.get('total_parts', 1)
+                Logger.info(f"检测到多P视频，使用批量下载模式 (共{total_parts}P)")
         
         # 输出目录 - 使用video['path']中设置的最终文件夹名（即视频号-标题格式）
         video_path = video.get('path', Path(f"{avid}"))
@@ -945,8 +995,8 @@ class BatchDownloader:
         # 获取最终的视频文件夹名（即视频号-标题格式）
         final_video_folder_name = video_path.name
         
-        # yutto的输出目录设置为任务主目录
-        video_output_dir = output_dir / final_video_folder_name
+        # yutto的输出目录设置为任务主目录（使用绝对路径）
+        video_output_dir = (output_dir / final_video_folder_name).resolve()
         yutto_cmd.extend(["-d", str(video_output_dir)])
         
         # 如果有SESSDATA，添加-c参数
@@ -1028,8 +1078,8 @@ class BatchDownloader:
         video_url = csv_data['video_url']
         
         # 处理不同类型的视频
-        if 'bangumi/play/ep' in video_url:
-            # 番剧视频，从URL中提取episode_id
+        if 'bangumi/play/ep' in video_url or 'cheese/play/ep' in video_url:
+            # 番剧或课程视频，从URL中提取episode_id
             import re
             ep_match = re.search(r'/ep(\d+)', video_url)
             if ep_match:
@@ -1044,7 +1094,7 @@ class BatchDownloader:
                 'avid': BvId("BV1"),  # 占位符，下载时会更新
                 'cid': CId(csv_data['cid']),
                 'path': Path(csv_data['download_path']),
-                'pubdate': 0,  # 番剧没有pubdate
+                'pubdate': 0,  # 番剧和课程没有pubdate
                 'status': csv_data.get('status', 'pending'),
                 'episode_id': episode_id,  # 保存episode_id用于获取详细信息
                 'is_multi_part': csv_data.get('is_multi_part', 'False') == 'True',  # 从CSV读取多P标记
