@@ -566,6 +566,226 @@ def start_update_selected():
     })
 
 
+@app.route('/api/delete_all', methods=['POST'])
+def start_delete_all():
+    """开始批量删除任务的视频文件"""
+    global task_counter
+    
+    data = request.get_json() or {}
+    output_dir = data.get('output_dir', '~/Downloads').strip()
+    
+    task_counter += 1
+    task_id = f"delete_{task_counter}"
+    
+    # 记录任务信息
+    current_tasks[task_id] = {
+        'id': task_id,
+        'type': 'delete_all',
+        'output_dir': output_dir,
+        'status': 'starting',
+        'start_time': time.time(),
+        'progress': 0,
+        'progress_detail': {
+            'deleted': 0,
+            'total': 0,
+            'current_task': ''
+        },
+        'should_stop': False,
+        'process': None,
+        'thread': None
+    }
+    
+    # 在后台线程中执行删除
+    def run_delete():
+        try:
+            current_tasks[task_id]['status'] = 'running'
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+            
+            # 设置Logger回调以捕获所有日志
+            Logger.set_callback(create_web_logger_callback(task_id))
+            
+            # 创建下载器并执行批量删除
+            downloader = BatchDownloader(
+                output_dir=Path(output_dir).expanduser(),
+                sessdata=None,
+                extra_args=[],
+                original_url=None,
+                task_id=task_id,
+                task_control=current_tasks
+            )
+            
+            # 在新的事件循环中运行异步任务
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(downloader.delete_all_tasks())
+            loop.close()
+            
+            # 检查是否被手动停止
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"批量删除任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'completed'
+                current_tasks[task_id]['progress'] = 100
+                Logger.custom(f"批量删除任务 {task_id} 完成", "任务管理")
+            
+        except Exception as e:
+            # 检查是否是因为停止导致的异常
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"批量删除任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'error'
+                current_tasks[task_id]['error'] = str(e)
+                Logger.error(f"批量删除任务 {task_id} 失败: {e}")
+        finally:
+            # 清除Logger回调
+            Logger.set_callback(None)
+            # 清理进程引用
+            current_tasks[task_id]['process'] = None
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+    
+    thread = threading.Thread(target=run_delete)
+    thread.daemon = True
+    current_tasks[task_id]['thread'] = thread
+    thread.start()
+    
+    return jsonify({
+        'success': True, 
+        'message': '批量删除任务已开始',
+        'task_id': task_id
+    })
+
+
+@app.route('/api/delete_selected', methods=['POST'])
+def start_delete_selected():
+    """开始选择性删除任务的视频文件"""
+    global task_counter
+    
+    data = request.get_json() or {}
+    task_paths = data.get('task_paths', [])
+    
+    if not task_paths:
+        return jsonify({'success': False, 'message': '请选择要删除的任务'})
+    
+    task_counter += 1
+    task_id = f"delete_selected_{task_counter}"
+    
+    # 记录任务信息
+    current_tasks[task_id] = {
+        'id': task_id,
+        'type': 'delete_selected',
+        'task_paths': task_paths,
+        'status': 'starting',
+        'start_time': time.time(),
+        'progress': 0,
+        'progress_detail': {
+            'current_task': 0,
+            'total_tasks': len(task_paths),
+            'current_task_name': '',
+            'completed_tasks': []
+        },
+        'should_stop': False,
+        'process': None,
+        'thread': None
+    }
+    
+    # 在后台线程中执行删除
+    def run_delete():
+        try:
+            current_tasks[task_id]['status'] = 'running'
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+            
+            # 设置Logger回调以捕获所有日志
+            Logger.set_callback(create_web_logger_callback(task_id))
+            
+            completed_count = 0
+            failed_count = 0
+            
+            for i, task_path in enumerate(task_paths):
+                if current_tasks[task_id].get('should_stop', False):
+                    Logger.warning(f"选择性删除任务 {task_id} 被手动停止")
+                    break
+                
+                task_name = Path(task_path).name
+                current_tasks[task_id]['progress_detail']['current_task'] = i + 1
+                current_tasks[task_id]['progress_detail']['current_task_name'] = task_name
+                current_tasks[task_id]['progress'] = int((i / len(task_paths)) * 100)
+                socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+                
+                Logger.info(f"[{i+1}/{len(task_paths)}] 开始删除任务: {task_name}")
+                
+                try:
+                    # 创建下载器并执行单个任务删除
+                    downloader = BatchDownloader(
+                        output_dir=Path(task_path).parent,
+                        sessdata=None,
+                        extra_args=[],
+                        original_url=None,
+                        task_id=task_id,
+                        task_control=current_tasks
+                    )
+                    
+                    # 在新的事件循环中运行异步任务
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    await_task = loop.run_until_complete(downloader.delete_single_task(Path(task_path)))
+                    loop.close()
+                    
+                    completed_count += 1
+                    current_tasks[task_id]['progress_detail']['completed_tasks'].append({
+                        'name': task_name,
+                        'status': 'success'
+                    })
+                    Logger.info(f"✅ 删除任务成功: {task_name}")
+                    
+                except Exception as e:
+                    failed_count += 1
+                    current_tasks[task_id]['progress_detail']['completed_tasks'].append({
+                        'name': task_name,
+                        'status': 'error',
+                        'error': str(e)
+                    })
+                    Logger.error(f"❌ 删除任务失败 {task_name}: {e}")
+                    continue
+            
+            # 检查是否被手动停止
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"选择性删除任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'completed'
+                current_tasks[task_id]['progress'] = 100
+                Logger.custom(f"选择性删除任务完成 - 成功: {completed_count}, 失败: {failed_count}", "任务管理")
+            
+        except Exception as e:
+            # 检查是否是因为停止导致的异常
+            if current_tasks[task_id].get('should_stop', False):
+                current_tasks[task_id]['status'] = 'stopped'
+                Logger.warning(f"选择性删除任务 {task_id} 已被手动停止")
+            else:
+                current_tasks[task_id]['status'] = 'error'
+                current_tasks[task_id]['error'] = str(e)
+                Logger.error(f"选择性删除任务 {task_id} 失败: {e}")
+        finally:
+            # 清除Logger回调
+            Logger.set_callback(None)
+            # 清理进程引用
+            current_tasks[task_id]['process'] = None
+            socketio.emit('task_update', filter_task_for_json(current_tasks[task_id]))
+    
+    thread = threading.Thread(target=run_delete)
+    thread.daemon = True
+    current_tasks[task_id]['thread'] = thread
+    thread.start()
+    
+    return jsonify({
+        'success': True, 
+        'message': f'选择性删除任务已开始，将删除 {len(task_paths)} 个任务的视频文件',
+        'task_id': task_id
+    })
+
+
 @app.route('/api/tasks')
 def get_tasks():
     """获取所有任务状态"""

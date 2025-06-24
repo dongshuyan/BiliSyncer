@@ -120,6 +120,9 @@
                         <button type="submit" class="btn btn-warning flex-grow-1">
                             <i class="bi bi-arrow-clockwise me-2"></i>开始批量更新
                         </button>
+                        <button type="button" class="btn btn-danger" onclick="deleteAllTasks()">
+                            <i class="bi bi-trash me-2"></i>批量清除视频
+                        </button>
                     </div>
                 </form>
             </div>
@@ -259,12 +262,15 @@
                 <!-- 选择性更新按钮 -->
                 <div class="row mb-3" id="update-selected-controls" style="display: none;">
                     <div class="col-12">
-                        <div class="d-flex gap-2 align-items-center">
+                        <div class="d-flex gap-2 align-items-center flex-wrap">
                             <button type="button" class="btn btn-warning" onclick="updateSelectedTasks()" id="update-selected-btn" disabled>
                                 <i class="bi bi-arrow-clockwise me-2"></i>更新选中的任务 (<span id="selected-count">0</span>)
                             </button>
+                            <button type="button" class="btn btn-danger" onclick="deleteSelectedTasks()" id="delete-selected-btn" disabled>
+                                <i class="bi bi-trash me-2"></i>清除选中的任务中的视频 (<span id="delete-selected-count">0</span>)
+                            </button>
                             <div class="text-muted small">
-                                只更新被选中的任务，未选中的任务将被跳过
+                                更新：只更新被选中的任务 | 清除：删除选中任务的视频文件，保留CSV记录
                             </div>
                         </div>
                     </div>
@@ -711,11 +717,12 @@
         
         // 更新选中计数显示
         document.getElementById('selected-count').textContent = count;
+        document.getElementById('delete-selected-count').textContent = count;
         document.getElementById('update-selected-count-info').textContent = `已选择 ${count} 个任务`;
         
         // 控制按钮状态
-        const btn = document.getElementById('update-selected-btn');
-        btn.disabled = count === 0;
+        document.getElementById('update-selected-btn').disabled = count === 0;
+        document.getElementById('delete-selected-btn').disabled = count === 0;
     }
     
     function updateSelectedTasks() {
@@ -747,6 +754,70 @@
         
         submitForm('/api/update_selected', formData, function(response) {
             // 可以在这里添加额外的成功处理逻辑
+        });
+    }
+    
+    function deleteSelectedTasks() {
+        const selectedTasks = document.querySelectorAll('.task-card.selected');
+        const taskPaths = Array.from(selectedTasks).map(task => task.dataset.taskPath);
+        
+        if (taskPaths.length === 0) {
+            showAlert('warning', '请先选择要清除的任务');
+            return;
+        }
+        
+        // 显示确认对话框
+        const taskNames = Array.from(selectedTasks).map(task => 
+            task.querySelector('h6').textContent
+        );
+        
+        const confirmMessage = `确定要清除以下 ${taskPaths.length} 个任务中的视频文件吗？\n\n` +
+            taskNames.slice(0, 5).join('\n') + 
+            (taskNames.length > 5 ? `\n... 等 ${taskNames.length} 个任务` : '') +
+            `\n\n⚠️ 注意：这将删除所有视频文件和文件夹，但保留CSV记录。`;
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        let formData = {
+            task_paths: taskPaths
+        };
+        
+        submitForm('/api/delete_selected', formData, function(response) {
+            // 删除成功后的处理逻辑
+            if (response.success) {
+                showAlert('success', '清除任务完成');
+            }
+        });
+    }
+    
+    function deleteAllTasks() {
+        const outputDir = document.getElementById('update_output_dir').value;
+        
+        if (!outputDir.trim()) {
+            showAlert('warning', '请先输入输出目录');
+            return;
+        }
+        
+        // 显示确认对话框
+        const confirmMessage = `确定要清除输出目录中所有任务的视频文件吗？\n\n` +
+            `输出目录：${outputDir}\n\n` +
+            `⚠️ 注意：这将删除所有符合条件任务的视频文件和文件夹，但保留CSV记录。`;
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        let formData = {
+            output_dir: outputDir
+        };
+        
+        submitForm('/api/delete_all', formData, function(response) {
+            // 删除成功后的处理逻辑
+            if (response.success) {
+                showAlert('success', '批量清除任务完成');
+            }
         });
     }
     
