@@ -3,7 +3,7 @@
   
   # BiliSyncer
 
-  🎯 **Intelligent Bilibili Content Synchronization Tool** - Batch download, resume support, and incremental updates
+  🎯 **Intelligent Bilibili Content Synchronization Tool** - Automated sync management, incremental updates, and batch downloads
 </div>
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org)
@@ -14,45 +14,66 @@
 
 ## 🌟 Overview
 
-BiliSyncer is a professional Bilibili content management tool that extends yutto with advanced batch downloading, intelligent synchronization, and web-based management capabilities. Perfect for content creators, educators, and media enthusiasts who need systematic content management.
+BiliSyncer is an intelligent synchronization management tool specifically designed for continuously updating Bilibili content. It focuses on solving the automated synchronization challenges of user favorites, UP master uploads, anime series, and other continuously updating resources. Built upon yutto, it provides a complete resource management ecosystem that makes content management simple and efficient.
 
-## ✨ Key Features
+## ✨ Core Advantages
 
-### 🔄 Intelligent Sync System
-- **Batch Downloads** - Process multiple URLs simultaneously
-- **Resume Support** - Automatically resume interrupted downloads
-- **Incremental Updates** - Download only new content since last sync
-- **Smart Status Tracking** - CSV-based progress management
+### 🎯 Intelligent Resource Discovery & Recognition
+- **Precise Resource Targeting** - Automatically retrieves complete and accurate video lists from favorites, UP master uploads, etc., without omissions or redundancy
+- **Smart Update Detection** - Automatically identifies all new content since the last sync, avoiding redundant requests and invalid operations
+- **Comprehensive Content Support** - Full support for user videos, anime, movies, courses, favorites, collections, and more
 
-### 📺 Comprehensive Content Support
-- User videos & series | Anime & movies | Favorites & collections
-- User spaces | Courses | Playlists | Watch later
+### 🔄 Advanced Synchronization Management
+- **Incremental Sync Technology** - Only synchronizes new and changed content, dramatically saving time and bandwidth
+- **Resume Protection** - Automatically recovers from network interruptions or unexpected stops, ensuring download continuity
+- **Persistent Status Tracking** - CSV-based progress management ensures sync records are never lost
 
-### 🎨 Modern Web Interface
-- Real-time progress monitoring | Task management dashboard
-- Configuration management | One-click batch operations
+### 🧹 One-Click Cleanup & Space Management
+- **Smart Cleanup Function** - Supports one-click cleanup of all downloaded files after backup completion, freeing storage space
+- **Record Retention Mechanism** - Preserves complete download records while cleaning files, providing foundation for future incremental syncs
+- **Storage Optimization Strategy** - Flexible file management strategies adapted to different storage scenarios
 
-### 🛡️ Robust & Reliable
-- Advanced retry mechanisms | Network error handling
-- Force stop capabilities | Cross-platform compatibility
+### ⚙️ Versatile Configuration Management
+- **Multi-Account Support** - Supports independent configuration and management of multiple Bilibili accounts for different permission needs
+- **Differentiated Configuration** - Provides independent parameter configuration schemes for different download requirements
+- **Configuration Templating** - Preset common configuration templates for quick application to different task scenarios
+
+### 📊 Visual Monitoring & Analytics
+- **Real-Time Task Monitoring** - Intuitively displays execution status and progress information of all sync tasks
+- **Historical Record Analysis** - Automatically tracks sync history and provides detailed task execution reports
+- **Resource Status Overview** - At-a-glance view of sync status and storage information for all resources
+
+### 🔧 Granular Task Scheduling
+- **Concurrent Task Management** - Supports parallel execution of multiple tasks, maximizing system resource utilization
+- **Task Lifecycle Control** - Provides complete control functions for task start, pause, stop, restart, etc.
+- **Priority Scheduling** - Supports task priority settings to prioritize important resources
+
+### 🎨 Intuitive & User-Friendly Web Interface
+- **Modern Design** - Clean and beautiful responsive web interface adapted to various devices
+- **Operational Simplicity** - Intuitive operation flow reduces learning costs and enhances user experience
+- **Feature Integration** - All management functions centralized in a unified interface, avoiding complex command-line operations
+
+### ⚡ Efficient Command Line Interface
+- **Batch Processing Capability** - Powerful CLI support for easy script invocation and automation integration
+- **Parameter Flexibility** - Rich command-line parameters meeting advanced users' fine-grained control needs
+- **Program Integration Friendly** - Easy integration into other automation systems and workflows
 
 ## 🆚 BiliSyncer vs Yutto vs Yutto-uiya
 
 | Feature | BiliSyncer | Yutto | Yutto-uiya |
 |---------|------------|-------|------------|
-| **Core Purpose** | Batch sync & management | Versatile CLI downloader | Simple WebUI wrapper |
+| **Core Purpose** | Continuous sync management | Versatile CLI downloader | Simple WebUI wrapper |
+| **Sync Capability** | ✅ Smart incremental sync | ➖ Manual re-execution required | ➖ Manual re-execution required |
+| **Resource Management** | ✅ Complete lifecycle management | ➖ Download-only functionality | ➖ Download-only functionality |
 | **Interface Type** | Professional Web Dashboard | Powerful Command Line | User-friendly Streamlit UI |
 | **Download Engine** | Built on yutto | Original robust engine | Built on yutto |
 | **Batch Operations** | ✅ Multi-task management | ✅ Batch download support | ✅ Basic batch support |
 | **Resume Downloads** | ✅ Automatic detection | ✅ Built-in resume capability | ✅ Inherits yutto's resume |
-| **Incremental Updates** | ✅ Smart sync detection | ➖ Manual re-execution | ➖ Manual re-execution |
 | **Status Persistence** | ✅ CSV-based tracking | ➖ Session-based only | ➖ Session-based only |
 | **Configuration** | ✅ Web + YAML management | ✅ Rich CLI options | ✅ Simple web forms |
 | **Content Organization** | ✅ Structured folder naming | ✅ Flexible path templates | ✅ Basic organization |
-| **Performance** | ⚠️ Web overhead | ✅ Lightweight & fast | ⚠️ Streamlit overhead |
-| **Extensibility** | ⚠️ Web-focused architecture | ✅ Highly modular design | ⚠️ UI-focused |
 | **Learning Curve** | 🟢 Beginner-friendly | 🟡 Technical users | 🟢 Very easy |
-| **Use Case** | Content management | Power user downloads | Casual downloading |
+| **Use Case** | Continuous content management | Power user downloads | Casual downloading |
 
 ### 🎯 Each Tool's Strength
 
@@ -60,21 +81,22 @@ BiliSyncer is a professional Bilibili content management tool that extends yutto
 
 **Yutto-uiya**: The accessibility bridge - brings yutto's power to casual users through a clean, simple web interface without complexity.
 
-**BiliSyncer**: The management layer - adds enterprise-level batch management, sync intelligence, and persistent tracking for systematic content organization.
+**BiliSyncer**: The management layer - focuses on automated synchronization management of continuously updating content, providing complete resource lifecycle solutions.
 
 ## 📱 Interface Preview
 
-### Download Management
-![Download Management](pictures/example-1.png)
+### Download Management Interface
+![Download Management](pictures/p1.png)
 
-### Batch Updates
-![Batch Updates](pictures/example-2.png)
+### Batch Update Interface
+![Batch Updates 1](pictures/p2-1.png)
+![Batch Updates 2](pictures/p2-2.png)
 
-### Task Status
-![Task Status](pictures/example-3.png)
+### Task Status Interface
+![Task Status](pictures/p3.png)
 
-### Configuration Management
-![Configuration Management](pictures/example-4.png)
+### Configuration Management Interface
+![Configuration Management](pictures/p4.png)
 
 ## 🚀 Quick Start
 
@@ -122,10 +144,10 @@ extra_args: ["--quality", "8K"]
 
 ## 🎯 Perfect For
 
-- **Content Creators** - Backup and organize your content library
-- **Educators** - Download course materials and educational content
-- **Media Collectors** - Systematically manage anime, series, and favorites
-- **Researchers** - Batch download reference materials
+- **Content Creators** - Continuously track and backup latest uploads from followed UP masters
+- **Educators** - Automatically sync course updates and educational resources
+- **Media Collectors** - Intelligently manage updates from favorites and watchlists
+- **Researchers** - Automate collection and organization of research-related video materials
 
 ## 🛠️ Tech Stack
 
