@@ -39,6 +39,33 @@ def open_browser(url, delay=2):
     time.sleep(delay)
     webbrowser.open(url)
 
+def is_docker_environment():
+    """检查是否在Docker环境中运行"""
+    # 检查常见的Docker环境标识
+    docker_indicators = [
+        '/.dockerenv',  # Docker容器中通常存在此文件
+        '/proc/1/cgroup',  # 检查cgroup信息
+    ]
+    
+    # 检查/.dockerenv文件
+    if os.path.exists('/.dockerenv'):
+        return True
+    
+    # 检查cgroup信息
+    try:
+        with open('/proc/1/cgroup', 'r') as f:
+            content = f.read()
+            if 'docker' in content or 'kubepods' in content:
+                return True
+    except:
+        pass
+    
+    # 检查环境变量
+    if os.environ.get('DOCKER_CONTAINER') == 'true':
+        return True
+    
+    return False
+
 def main():
     # 检查依赖
     try:
@@ -54,12 +81,19 @@ def main():
     script_dir = Path(__file__).parent
     os.chdir(script_dir)
     
-    # 查找可用端口
-    try:
-        port = find_available_port()
-    except RuntimeError as e:
-        print(f"❌ {e}")
-        sys.exit(1)
+    # 确定端口
+    if is_docker_environment():
+        # Docker环境中使用固定端口
+        port = 5000
+        print("🐳 检测到Docker环境，使用固定端口5000")
+    else:
+        # 本地开发环境使用随机端口
+        try:
+            port = find_available_port()
+            print(f"🖥️  本地开发环境，使用随机端口{port}")
+        except RuntimeError as e:
+            print(f"❌ {e}")
+            sys.exit(1)
     
     # 启动WebUI
     from webui.app import app, socketio
@@ -77,12 +111,15 @@ def main():
     print("   • 批量更新所有任务")
     print("   • 实时日志显示")
     print("=" * 60)
-    print("🚀 正在自动打开浏览器...")
     
-    # 启动浏览器打开页面（在后台线程中延迟执行）
-    browser_thread = threading.Thread(target=open_browser, args=(url,))
-    browser_thread.daemon = True
-    browser_thread.start()
+    # 只在非Docker环境中自动打开浏览器
+    if not is_docker_environment():
+        print("🚀 正在自动打开浏览器...")
+        browser_thread = threading.Thread(target=open_browser, args=(url,))
+        browser_thread.daemon = True
+        browser_thread.start()
+    else:
+        print("🐳 Docker环境，请手动访问上述地址")
     
     try:
         socketio.run(app, host='0.0.0.0', port=port, debug=False)
