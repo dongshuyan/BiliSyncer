@@ -659,14 +659,18 @@ class BatchDownloader:
                 if not self.csv_manager:
                     Logger.error("CSV管理器未初始化")
                     continue
-                await self._download_single_video(video, self.task_id, self.csv_manager.task_dir)
                 
-                # 更新CSV文件中的下载状态
-                video_url = self._get_video_url(video)
-                if self.csv_manager:
-                    self.csv_manager.mark_video_downloaded(video_url)
-                    
-                Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']}")
+                download_success = await self._download_single_video(video, self.task_id, self.csv_manager.task_dir)
+                
+                if download_success:
+                    # 只有下载成功或应该跳过的情况才标记为已下载
+                    video_url = self._get_video_url(video)
+                    if self.csv_manager:
+                        self.csv_manager.mark_video_downloaded(video_url)
+                        
+                    Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']}")
+                else:
+                    Logger.error(f"[{i}/{len(videos)}] 下载失败，不标记为已完成: {video['name']}")
                 
                 # 更新进度
                 self._update_progress()
@@ -678,12 +682,11 @@ class BatchDownloader:
             except Exception as e:
                 Logger.error(f"下载视频 {video['name']} 失败: {e}")
                 
-                # 即使下载失败，也标记为已处理（避免无限重试）
-                video_url = self._get_video_url(video)
-                if self.csv_manager:
-                    self.csv_manager.mark_video_downloaded(video_url)
+                # 下载异常时不标记为已处理，让用户修复问题后可以重试
+                # 这样配置错误等问题修复后就能重新下载
+                Logger.warning(f"[{i}/{len(videos)}] 由于异常未标记为已完成，可修复问题后重试")
                 
-                # 更新进度
+                # 更新进度（即使失败也要更新进度避免界面卡住）
                 self._update_progress()
                 
                 # 下载失败时也添加短暂延迟，避免连续快速重试
@@ -1006,6 +1009,9 @@ class BatchDownloader:
         # 添加用户额外参数
         yutto_cmd.extend(self.extra_args)
         
+        # 收集yutto输出用于智能判断结果
+        yutto_output = []
+        
         try:
             Logger.debug(f"执行命令: {' '.join(yutto_cmd)}")
             
@@ -1043,6 +1049,9 @@ class BatchDownloader:
                         # 解码输出并发送到Logger
                         output = line.decode('utf-8', errors='ignore').strip()
                         if output:
+                            # 收集输出用于后续分析
+                            yutto_output.append(output)
+                            
                             # 根据输出内容判断日志级别
                             if 'error' in output.lower() or 'failed' in output.lower():
                                 Logger.error(f"[yutto] {output}")
@@ -1059,11 +1068,19 @@ class BatchDownloader:
             # 等待进程完成
             return_code = await process.wait()
             
-            if return_code != 0:
-                raise Exception(f"yutto下载失败，返回码: {return_code}")
+            # 分析下载结果
+            download_result = self._analyze_yutto_result(return_code, yutto_output)
             
-            Logger.info(f"视频 {avid} 下载完成")
-            return True
+            if download_result == "success":
+                Logger.info(f"视频 {avid} 下载完成")
+                return True
+            elif download_result == "should_skip":
+                # 这些情况标记为成功，避免重复尝试
+                Logger.info(f"视频 {avid} 无法下载（充电视频/已下架等），标记为已处理")
+                return True
+            else:
+                # 配置错误等真正的失败，不应标记为成功
+                raise Exception(f"yutto下载失败，返回码: {return_code}")
                 
         except Exception as e:
             Logger.error(f"调用yutto失败: {e}")
@@ -1072,6 +1089,72 @@ class BatchDownloader:
             # 清理进程引用
             if self.task_id and self.task_control:
                 self.task_control[self.task_id]['process'] = None
+
+    def _analyze_yutto_result(self, return_code: int, output_lines: list) -> str:
+        """分析yutto下载结果
+        
+        Returns:
+            "success": 下载成功
+            "should_skip": 应该跳过（充电视频等不可下载内容）
+            "failure": 真正的失败（配置错误等）
+        """
+        # 合并所有输出为一个字符串用于分析
+        full_output = "\n".join(output_lines).lower()
+        
+        # 如果返回码为0，说明下载成功
+        if return_code == 0:
+            return "success"
+        
+        # 分析失败原因 - 优先检查配置问题
+        # 1. 配置问题（不应标记为成功）- 优先级最高
+        config_error_indicators = [
+            "启用了严格校验大会员或登录模式，请检查 sessdata 或大会员状态",
+            "请检查 sessdata",
+            "cookie 无效",
+            "登录失败",
+            "身份验证失败"
+        ]
+        
+        for indicator in config_error_indicators:
+            if indicator in full_output:
+                Logger.error(f"检测到配置错误: {indicator}")
+                return "failure"
+        
+        # 2. 网络错误等临时问题（不应标记为成功）
+        network_error_indicators = [
+            "网络错误",
+            "连接超时",
+            "请求失败",
+            "下载失败"
+        ]
+        
+        for indicator in network_error_indicators:
+            if indicator in full_output:
+                Logger.error(f"检测到网络或临时错误: {indicator}")
+                return "failure"
+        
+        # 3. 应该跳过的情况（标记为成功避免重复尝试）- 优先级较低
+        skip_indicators = [
+            "尚不支持 dash 格式",  # 充电视频
+            "该视频（bvid:",       # 充电视频的另一种表达
+            "视频不存在",
+            "稿件不可见",
+            "已删除",
+            "无法访问",
+            "权限不足",
+            "需要付费",
+            "会员专享",  # 仅当不是配置错误时才跳过
+            "充电专享"
+        ]
+        
+        for indicator in skip_indicators:
+            if indicator in full_output:
+                Logger.info(f"检测到应跳过的失败类型: {indicator}")
+                return "should_skip"
+        
+        # 默认情况：未知错误，不标记为成功
+        Logger.warning(f"未识别的失败类型，返回码: {return_code}")
+        return "failure"
     
     def _csv_to_video_info(self, csv_data: Dict[str, str]) -> VideoInfo:
         """将CSV数据转换为VideoInfo"""
