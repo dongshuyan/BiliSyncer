@@ -924,8 +924,8 @@ class BatchDownloader:
             
         return filename
     
-    async def _download_single_video(self, video, task_id, output_dir):
-        """下载单个视频"""
+    async def _download_single_video(self, video, task_id, output_dir, max_retries: int = 5):
+        """下载单个视频（支持重试机制）"""
         avid = video["avid"]
         video_url = self._get_video_url(video)
         
@@ -962,6 +962,59 @@ class BatchDownloader:
         if self._should_stop():
             Logger.info(f"任务 {task_id} 收到停止信号，跳过视频 {avid}")
             return False
+        
+        # 重试循环
+        for attempt in range(max_retries):
+            try:
+                # 如果是重试，先清理现有文件夹
+                if attempt > 0:
+                    Logger.info(f"准备第 {attempt + 1}/{max_retries} 次重试下载...")
+                    await self._cleanup_existing_video_folder(video)
+                    # 重试时添加延迟，避免立即重试
+                    await asyncio.sleep(min(2.0 * attempt, 10.0))  # 递增延迟，最大10秒
+                
+                result = await self._perform_single_download(video, task_id, output_dir)
+                
+                if result == "success":
+                    if attempt > 0:
+                        Logger.info(f"视频 {avid} 在第 {attempt + 1} 次尝试后下载成功")
+                    return True
+                elif result == "should_skip":
+                    Logger.info(f"视频 {avid} 无法下载（充电视频/已下架等），标记为已处理")
+                    return True
+                elif result == "retry":
+                    # 可重试的错误
+                    if attempt < max_retries - 1:
+                        Logger.warning(f"视频 {avid} 下载失败，将进行第 {attempt + 2} 次尝试")
+                        continue
+                    else:
+                        Logger.error(f"视频 {avid} 在 {max_retries} 次尝试后仍然失败，放弃重试")
+                        return False
+                else:
+                    # 不可重试的错误（配置错误等）
+                    Logger.error(f"视频 {avid} 下载失败（不可重试的错误）")
+                    return False
+                    
+            except Exception as e:
+                if "任务被手动停止" in str(e):
+                    Logger.info(f"视频 {avid} 下载被手动停止")
+                    return False
+                
+                Logger.error(f"视频 {avid} 下载异常（第 {attempt + 1} 次尝试）: {e}")
+                if attempt < max_retries - 1:
+                    Logger.warning(f"将在延迟后进行第 {attempt + 2} 次尝试")
+                    await asyncio.sleep(min(2.0 * attempt, 10.0))
+                    continue
+                else:
+                    Logger.error(f"视频 {avid} 在 {max_retries} 次尝试后仍然异常，放弃重试")
+                    return False
+        
+        return False
+
+    async def _perform_single_download(self, video, task_id, output_dir):
+        """执行单次下载尝试"""
+        avid = video["avid"]
+        video_url = self._get_video_url(video)
         
         # 构建yutto命令
         yutto_cmd = ["yutto"]
@@ -1068,19 +1121,9 @@ class BatchDownloader:
             # 等待进程完成
             return_code = await process.wait()
             
-            # 分析下载结果
+            # 分析下载结果并返回结果类型
             download_result = self._analyze_yutto_result(return_code, yutto_output)
-            
-            if download_result == "success":
-                Logger.info(f"视频 {avid} 下载完成")
-                return True
-            elif download_result == "should_skip":
-                # 这些情况标记为成功，避免重复尝试
-                Logger.info(f"视频 {avid} 无法下载（充电视频/已下架等），标记为已处理")
-                return True
-            else:
-                # 配置错误等真正的失败，不应标记为成功
-                raise Exception(f"yutto下载失败，返回码: {return_code}")
+            return download_result
                 
         except Exception as e:
             Logger.error(f"调用yutto失败: {e}")
@@ -1096,6 +1139,7 @@ class BatchDownloader:
         Returns:
             "success": 下载成功
             "should_skip": 应该跳过（充电视频等不可下载内容）
+            "retry": 可重试的临时错误（网络问题等）
             "failure": 真正的失败（配置错误等）
         """
         # 合并所有输出为一个字符串用于分析
@@ -1120,20 +1164,7 @@ class BatchDownloader:
                 Logger.error(f"检测到配置错误: {indicator}")
                 return "failure"
         
-        # 2. 网络错误等临时问题（不应标记为成功）
-        network_error_indicators = [
-            "网络错误",
-            "连接超时",
-            "请求失败",
-            "下载失败"
-        ]
-        
-        for indicator in network_error_indicators:
-            if indicator in full_output:
-                Logger.error(f"检测到网络或临时错误: {indicator}")
-                return "failure"
-        
-        # 3. 应该跳过的情况（标记为成功避免重复尝试）- 优先级较低
+        # 2. 应该跳过的情况（标记为成功避免重复尝试）- 优先级较高
         skip_indicators = [
             "尚不支持 dash 格式",  # 充电视频
             "该视频（bvid:",       # 充电视频的另一种表达
@@ -1151,6 +1182,30 @@ class BatchDownloader:
             if indicator in full_output:
                 Logger.info(f"检测到应跳过的失败类型: {indicator}")
                 return "should_skip"
+        
+        # 3. 可重试的临时错误
+        retry_error_indicators = [
+            "网络错误",
+            "连接超时",
+            "请求失败",
+            "下载失败",
+            "separator is not found",  # 网络传输问题
+            "chunk exceed the limit",  # 网络传输问题
+            "connection reset",
+            "timeout",
+            "temporary failure",
+            "无法连接",
+            "网络不可达",
+            "服务器错误",
+            "503 service unavailable",
+            "502 bad gateway",
+            "504 gateway timeout"
+        ]
+        
+        for indicator in retry_error_indicators:
+            if indicator in full_output:
+                Logger.warning(f"检测到可重试的错误: {indicator}")
+                return "retry"
         
         # 默认情况：未知错误，不标记为成功
         Logger.warning(f"未识别的失败类型，返回码: {return_code}")
