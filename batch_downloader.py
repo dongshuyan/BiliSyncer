@@ -518,18 +518,17 @@ class BatchDownloader:
                     Logger.info(f"发现 {len(new_video_urls)} 个新增视频，更新CSV文件")
                     # 更新CSV文件（保持现有下载状态）
                     self.csv_manager.update_video_list(new_videos, original_url)
-                    # 只下载新增的视频
-                    videos_to_download = [v for v in new_videos if v['avid'].to_url() in new_video_urls]
                 else:
                     Logger.info("没有发现新增视频")
-                    # 检查是否有待下载的视频
-                    pending_videos = self.csv_manager.get_pending_videos()
-                    if pending_videos:
-                        Logger.info(f"发现 {len(pending_videos)} 个未完成的下载，继续下载任务")
-                        videos_to_download = [self._csv_to_video_info(data) for data in pending_videos]
-                    else:
-                        Logger.info("所有视频都已下载完成")
-                        return
+                
+                # 统一处理：无论是否有新增视频，都检查所有待下载视频
+                pending_videos = self.csv_manager.get_pending_videos()
+                if pending_videos:
+                    Logger.info(f"发现 {len(pending_videos)} 个待下载视频，开始下载任务")
+                    videos_to_download = [self._csv_to_video_info(data) for data in pending_videos]
+                else:
+                    Logger.info("所有视频都已下载完成")
+                    return
             else:
                 # 首次创建CSV文件
                 Logger.info("首次创建CSV文件...")
