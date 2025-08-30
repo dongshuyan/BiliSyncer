@@ -63,6 +63,16 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/health')
+def health_check():
+    """健康检查端点"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'BiliSyncer WebUI',
+        'timestamp': time.time()
+    })
+
+
 @app.route('/update')
 def update_page():
     """批量更新页面"""

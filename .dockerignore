@@ -1,0 +1,103 @@
+# Git相关
+.git
+.gitignore
+.gitattributes
+
+# IDE相关
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Python相关
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+venv
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.mypy_cache
+.pytest_cache
+.hypothesis
+.pytest_cache
+.coverage
+htmlcov
+
+# 下载目录和媒体文件
+downloads/
+*.mp4
+*.flv
+*.m4a
+*.mp3
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.webm
+*.ts
+*.m3u8
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# 日志文件
+*.log
+logs/
+
+# 配置文件（可选，如果需要外部挂载）
+# config/
+
+# 文档和说明文件
+README*.md
+LICENSE.txt
+CHANGELOG*.md
+# 注意：保留requirements文件，排除其他txt文件
+*.txt
+!requirements.txt
+!webui_requirements.txt
+
+# Docker相关
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+build.sh
+nginx.conf
+
+# 测试文件
+tests/
+test_*
+*_test.py
+
+# 构建和部署文件
+Makefile
+setup.py
+requirements-dev.txt
+*.spec
+
+# 其他
+.env
+.env.*
+*.key
+*.pem
+*.crt 
