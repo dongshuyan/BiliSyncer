@@ -10,6 +10,7 @@ import glob
 from pathlib import Path
 from typing import Optional, List, Dict
 import re
+import time
 
 from utils.types import VideoListData, VideoInfo, DownloadOptions, AId, BvId, CId
 from utils.fetcher import Fetcher
@@ -473,11 +474,15 @@ class BatchDownloader:
             original_url = self.csv_manager.get_original_url()
             
             if not original_url:
-                raise Exception(f"任务目录 {task_dir.name} 中未找到有效的原始URL")
+                Logger.warning(f"任务目录 {task_dir.name} 中未找到有效的原始URL，将禁用该目录")
+                self._disable_task_directory(task_dir, "CSV无URL")
+                return
             
             # 验证CSV文件格式
             if not self._validate_csv_format(self.csv_manager):
-                raise Exception(f"任务目录 {task_dir.name} 的CSV文件格式不正确")
+                Logger.warning(f"任务目录 {task_dir.name} 的CSV文件格式不正确，将禁用该目录")
+                self._disable_task_directory(task_dir, "缺少CSV文件")
+                return
             
             Logger.info(f"发现任务URL: {original_url}")
             
@@ -497,8 +502,32 @@ class BatchDownloader:
                 video_list = await extract_video_list(self.fetcher, original_url)
                 new_videos = video_list["videos"]
             except Exception as e:
+                error_msg = str(e).lower()
                 Logger.error(f"获取视频列表失败: {e}")
+                
+                # 检查是否为永久性错误，需要禁用目录
+                permanent_errors = ["权限不足", "访问被拒绝", "账号被封", "内容不存在", "已删除"]
+                if any(keyword in error_msg for keyword in permanent_errors):
+                    Logger.warning(f"检测到永久性错误，将禁用任务目录: {task_dir.name}")
+                    self._disable_task_directory(task_dir, "获取失败")
+                    return
+                
                 raise
+
+            # 新增策略：若列表为空或标题已更改，则禁用该任务目录（重命名为无效前缀）
+            try:
+                new_title = str(video_list.get("title", "")).strip()
+                current_dir_name = task_dir.name
+                title_changed = bool(new_title) and (new_title != current_dir_name)
+                list_empty = not new_videos or len(new_videos) == 0
+                if title_changed or list_empty:
+                    reason = "视频列表为空" if list_empty else "标题已更改"
+                    Logger.warning(f"检测到更新异常（{reason}），将禁用任务目录: {current_dir_name}")
+                    self._disable_task_directory(task_dir, reason)
+                    return
+            except Exception:
+                # 若禁用流程出错，不影响后续逻辑
+                pass
             
             if not new_videos:
                 Logger.warning("未获取到任何视频信息")
@@ -1276,3 +1305,37 @@ class BatchDownloader:
             }
         
         return video_info  # type: ignore 
+
+    def _disable_task_directory(self, task_dir: Path, reason: str) -> None:
+        """通过重命名方式禁用任务目录，使其不再被更新扫描识别"""
+        try:
+            parent = task_dir.parent
+            old_name = task_dir.name
+            
+            # 根据原因生成简短描述（不超过5个字）
+            reason_mapping = {
+                "视频列表为空": "空列表",
+                "标题已更改": "标题变",
+                "目录前缀无效": "前缀错",
+                "缺少CSV文件": "无CSV",
+                "CSV无URL": "无URL",
+                "获取失败": "获取失败",
+                "网络错误": "网络错",
+                "权限不足": "权限错"
+            }
+            
+            # 获取简短原因描述，如果找不到映射则使用原原因（截取前5个字符）
+            short_reason = reason_mapping.get(reason, reason[:5] if len(reason) > 5 else reason)
+            
+            # 以"无效-原因-"为前缀，打破有效前缀匹配
+            base_new_name = f"无效-{short_reason}-{old_name}"
+            new_path = parent / base_new_name
+            
+            # 如存在重名，追加时间后缀
+            if new_path.exists():
+                ts = time.strftime('%Y%m%d-%H%M%S')
+                new_path = parent / f"{base_new_name}-{ts}"
+            task_dir.rename(new_path)
+            Logger.custom(f"目录已禁用并重命名为: {new_path.name}（原因：{reason}）", "任务禁用")
+        except Exception as e:
+            Logger.error(f"禁用任务目录失败: {e}")

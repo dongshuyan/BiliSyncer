@@ -223,6 +223,91 @@ def start_download():
     if not url:
         return jsonify({'success': False, 'message': '请输入下载URL'})
     
+    # 判重1：是否已有相同URL正在下载/准备中
+    for existing in current_tasks.values():
+        try:
+            if existing.get('url') == url and existing.get('status') in ['starting', 'running', 'stopping']:
+                return jsonify({
+                    'success': False,
+                    'message': '该URL任务已在进行中',
+                    'existing_task_id': existing.get('id'),
+                    'status': existing.get('status')
+                })
+        except Exception:
+            pass
+
+    # 判重2：是否为历史任务（通过URL特征快速匹配）
+    def _find_existing_task_dir_by_url(target_url: str, base_output_dir: str) -> Optional[Path]:
+        try:
+            scan_dir = Path(base_output_dir).expanduser()
+            if not scan_dir.exists():
+                return None
+            
+            # 从URL中提取关键信息用于快速匹配
+            url_lower = target_url.lower()
+            
+            # 快速检查：只遍历目录名，不读取CSV文件
+            for task_dir in scan_dir.iterdir():
+                if not task_dir.is_dir():
+                    continue
+                
+                # 快速检查：目录名是否以有效前缀开头
+                dir_name = task_dir.name
+                valid_prefixes = ['投稿视频-', '番剧-', '收藏夹-', '视频列表-', '视频合集-', 'UP主-', '稍后再看-', '课程-']
+                if not any(dir_name.startswith(prefix) for prefix in valid_prefixes):
+                    continue
+                
+                # 快速检查：目录内是否有CSV文件（不读取内容）
+                csv_files = list(task_dir.glob("??-??-??-??-??.csv"))
+                if not csv_files:
+                    continue
+                
+                # 通过URL特征进行快速匹配
+                # 1. 如果是BV号视频，检查目录名是否包含BV号
+                if 'bilibili.com/video/bv' in url_lower or 'bilibili.com/video/BV' in url_lower:
+                    import re
+                    bv_match = re.search(r'BV[a-zA-Z0-9]+', target_url)
+                    if bv_match and bv_match.group() in dir_name:
+                        return task_dir
+                
+                # 2. 如果是收藏夹，检查目录名是否包含收藏夹ID
+                elif 'space.bilibili.com' in url_lower and 'favlist' in url_lower:
+                    import re
+                    fid_match = re.search(r'fid=(\d+)', target_url)
+                    if fid_match and fid_match.group(1) in dir_name:
+                        return task_dir
+                
+                # 3. 如果是UP主空间，检查目录名是否包含UID
+                elif 'space.bilibili.com' in url_lower and '/favlist' not in url_lower:
+                    import re
+                    uid_match = re.search(r'space\.bilibili\.com/(\d+)', target_url)
+                    if uid_match and uid_match.group(1) in dir_name:
+                        return task_dir
+                
+                # 4. 如果是番剧，检查目录名是否包含番剧ID
+                elif 'bilibili.com/bangumi' in url_lower:
+                    import re
+                    ss_match = re.search(r'ss(\d+)', target_url)
+                    if ss_match and ss_match.group(1) in dir_name:
+                        return task_dir
+                
+                # 5. 如果是课程，检查目录名是否包含课程ID
+                elif 'bilibili.com/cheese' in url_lower:
+                    import re
+                    ep_match = re.search(r'ep(\d+)', target_url)
+                    if ep_match and ep_match.group(1) in dir_name:
+                        return task_dir
+                
+                # 6. 如果是稍后再看，直接匹配
+                elif 'watchlater' in url_lower and dir_name.startswith('稍后再看-'):
+                    return task_dir
+                
+        except Exception:
+            return None
+        return None
+
+    existing_task_dir = _find_existing_task_dir_by_url(url, output_dir)
+
     task_counter += 1
     task_id = f"task_{task_counter}"
     
@@ -253,7 +338,7 @@ def start_download():
         'thread': None         # 线程引用
     }
     
-    # 在后台线程中执行下载
+    # 在后台线程中执行下载或更新
     def run_download():
         try:
             current_tasks[task_id]['status'] = 'running'
@@ -262,21 +347,34 @@ def start_download():
             # 设置Logger回调以捕获所有日志
             Logger.set_callback(create_web_logger_callback(task_id))
             
-            # 创建下载器并执行
-            downloader = BatchDownloader(
-                output_dir=Path(output_dir).expanduser(),
-                sessdata=cookie if cookie else None,
-                extra_args=extra_args,
-                original_url=url,
-                task_id=task_id,  # 传递任务ID以便检查停止标志
-                task_control=current_tasks  # 传递任务控制字典
-            )
-            
-            # 在新的事件循环中运行异步任务
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(downloader.download_from_url(url))
-            loop.close()
+            # 创建下载器并执行：若发现历史任务目录，则走更新逻辑；否则正常下载
+            if existing_task_dir is not None:
+                current_tasks[task_id]['type'] = 'update_single'
+                downloader = BatchDownloader(
+                    output_dir=existing_task_dir.parent,
+                    sessdata=cookie if cookie else None,
+                    extra_args=extra_args,
+                    original_url=None,
+                    task_id=task_id,
+                    task_control=current_tasks
+                )
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(downloader.update_single_task(existing_task_dir))
+                loop.close()
+            else:
+                downloader = BatchDownloader(
+                    output_dir=Path(output_dir).expanduser(),
+                    sessdata=cookie if cookie else None,
+                    extra_args=extra_args,
+                    original_url=url,
+                    task_id=task_id,  # 传递任务ID以便检查停止标志
+                    task_control=current_tasks  # 传递任务控制字典
+                )
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(downloader.download_from_url(url))
+                loop.close()
             
             # 检查是否被手动停止
             if current_tasks[task_id].get('should_stop', False):

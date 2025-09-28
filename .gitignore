@@ -26,6 +26,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.cunzhi-memory/
+
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -164,3 +166,5 @@ Thumbs.db
 *.temp
 *.bak
 *.backup 
+.cunzhi-memory
+.cunzhi-memory/
