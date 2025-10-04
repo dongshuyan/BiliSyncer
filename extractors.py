@@ -10,12 +10,23 @@ from typing import Dict, List, Any
 from utils.logger import Logger
 from utils.fetcher import Fetcher
 from api.bilibili import (
-    get_favourite_avids, get_favourite_info, get_user_space_videos,
-    get_series_videos, get_watch_later_avids, get_bangumi_list,
-    get_season_id_by_media_id, get_season_id_by_episode_id, get_user_name,
-    get_ugc_video_list, get_bangumi_episode_list, get_bangumi_episode_info,
-    get_cheese_episode_list, get_cheese_season_id_by_episode_id,
-    get_favourite_avids_incremental, get_user_space_videos_incremental
+    get_favourite_avids,
+    get_favourite_avids_incremental,
+    get_favourite_info,
+    get_user_space_videos,
+    get_user_space_videos_incremental,
+    get_series_videos,
+    get_watch_later_avids,
+    get_bangumi_list,
+    get_season_id_by_media_id,
+    get_season_id_by_episode_id,
+    get_user_name,
+    get_ugc_video_list,
+    get_bangumi_episode_list,
+    get_bangumi_episode_info,
+    get_cheese_episode_list,
+    get_cheese_season_id_by_episode_id,
+    RISK_CONTROL_DETECTED,
 )
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
@@ -170,6 +181,10 @@ class FavouriteExtractor(URLExtractor):
         fav_info = await get_favourite_info(fetcher, fid)
         avids = await get_favourite_avids(fetcher, fid)
         
+        # 检查是否返回了风控检测指令
+        if avids == RISK_CONTROL_DETECTED:
+            return RISK_CONTROL_DETECTED
+        
         # 修改文件夹命名格式：收藏夹-收藏夹ID-收藏夹名
         folder_name = f"收藏夹-{fid}-{fav_info['title']}"
         
@@ -202,6 +217,10 @@ class FavouriteExtractor(URLExtractor):
         
         fav_info = await get_favourite_info(fetcher, fid)
         avids = await get_favourite_avids_incremental(fetcher, fid, existing_urls)
+        
+        # 检查是否返回了风控检测指令
+        if avids == RISK_CONTROL_DETECTED:
+            return RISK_CONTROL_DETECTED
         
         # 修改文件夹命名格式：收藏夹-收藏夹ID-收藏夹名
         folder_name = f"收藏夹-{fid}-{fav_info['title']}"
@@ -248,6 +267,10 @@ class SeriesExtractor(URLExtractor):
         
         avids = await get_series_videos(fetcher, series_id, mid)
         
+        # 检查是否返回了风控检测指令
+        if avids == RISK_CONTROL_DETECTED:
+            return RISK_CONTROL_DETECTED
+        
         # 修改文件夹命名格式：视频列表-视频列表ID-视频列表名
         type_name = "视频列表" if list_type == "series" else "视频合集"
         folder_name = f"{type_name}-{series_id}-{type_name}{series_id}"  # 暂时使用ID作为名称，后续可能需要获取实际名称
@@ -293,6 +316,10 @@ class UserSpaceExtractor(URLExtractor):
         username = await get_user_name(fetcher, mid)
         avids = await get_user_space_videos(fetcher, mid)
         
+        # 检查是否返回了风控检测指令
+        if avids == RISK_CONTROL_DETECTED:
+            return RISK_CONTROL_DETECTED
+        
         # 修改文件夹命名格式：UP主-UP主UID-UP主名
         folder_name = f"UP主-{mid}-{username}"
         
@@ -326,6 +353,10 @@ class UserSpaceExtractor(URLExtractor):
         # 获取用户名和增量视频列表（仅ID）
         username = await get_user_name(fetcher, mid)
         avids = await get_user_space_videos_incremental(fetcher, mid, existing_urls)
+        
+        # 检查是否返回了风控检测指令
+        if avids == RISK_CONTROL_DETECTED:
+            return RISK_CONTROL_DETECTED
         
         # 修改文件夹命名格式：UP主-UP主UID-UP主名
         folder_name = f"UP主-{mid}-{username}"
@@ -363,6 +394,10 @@ class WatchLaterExtractor(URLExtractor):
         Logger.info("提取稍后再看列表")
         
         avids = await get_watch_later_avids(fetcher)
+        
+        # 检查是否返回了风控检测指令
+        if avids == RISK_CONTROL_DETECTED:
+            return RISK_CONTROL_DETECTED
         
         # 修改文件夹命名格式：稍后再看-稍后再看ID-稍后再看名
         folder_name = "稍后再看-watchlater-稍后再看"
@@ -450,7 +485,7 @@ EXTRACTORS = [
 ]
 
 
-async def extract_video_list(fetcher: Fetcher, url: str) -> VideoListData:
+async def extract_video_list(fetcher: Fetcher, url: str) -> VideoListData | str:
     """从URL提取视频列表"""
     # 首先尝试解析快捷方式
     original_url = url
@@ -470,12 +505,17 @@ async def extract_video_list(fetcher: Fetcher, url: str) -> VideoListData:
     for extractor in EXTRACTORS:
         if extractor.match(url):
             Logger.info(f"使用提取器: {extractor.__class__.__name__}")
-            return await extractor.extract(fetcher, url)
+            try:
+                return await extractor.extract(fetcher, url)
+            except Exception as e:
+                Logger.warning(f"提取器 {extractor.__class__.__name__} 执行失败: {e}")
+                # 任何获取视频列表的失败都返回特殊指令
+                return RISK_CONTROL_DETECTED
     
     raise ValueError(f"不支持的URL类型: {url}")
 
 
-async def extract_video_list_incremental(fetcher: Fetcher, url: str, existing_urls: set) -> VideoListData:
+async def extract_video_list_incremental(fetcher: Fetcher, url: str, existing_urls: set) -> VideoListData | str:
     """增量提取视频列表（支持实时查重）"""
     # 首先尝试解析快捷方式
     original_url = url
@@ -495,6 +535,11 @@ async def extract_video_list_incremental(fetcher: Fetcher, url: str, existing_ur
     for extractor in EXTRACTORS:
         if extractor.match(url):
             Logger.info(f"使用增量提取器: {extractor.__class__.__name__}")
-            return await extractor.extract_incremental(fetcher, url, existing_urls)
+            try:
+                return await extractor.extract_incremental(fetcher, url, existing_urls)
+            except Exception as e:
+                Logger.warning(f"增量提取器 {extractor.__class__.__name__} 执行失败: {e}")
+                # 任何获取视频列表的失败都返回特殊指令
+                return RISK_CONTROL_DETECTED
     
     raise ValueError(f"不支持的URL类型: {url}") 

@@ -10,6 +10,9 @@ from typing import Any, Dict, List, Optional, cast, Tuple
 from utils.types import *
 from utils.fetcher import Fetcher
 from utils.logger import Logger
+
+# 风控检测特殊指令
+RISK_CONTROL_DETECTED = "RISK_CONTROL_DETECTED"
 import asyncio
 
 
@@ -185,7 +188,7 @@ async def get_favourite_info(fetcher: Fetcher, fid: FId) -> Dict[str, Any]:
     return res_json["data"]
 
 
-async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[AvId]:
+async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[AvId] | str:
     """获取收藏夹视频URL列表（仅获取ID，不获取详细信息）- 带重试机制"""
     Logger.info(f"获取收藏夹 {fid} 的视频列表...")
     
@@ -221,18 +224,9 @@ async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[AvId]:
                 break
                 
             except Exception as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (attempt + 1)
-                    Logger.warning(f"获取收藏夹异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}，等待 {delay:.1f} 秒后重试...")
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    if pn == 1:
-                        raise Exception(f"获取收藏夹 {fid} 视频列表失败: {e}")
-                    else:
-                        Logger.info(f"页面 {pn} 最终失败，结束获取")
-                        success = True
-                        break
+                Logger.warning(f"获取收藏夹异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}")
+                # 任何获取视频列表的失败都返回特殊指令
+                return RISK_CONTROL_DETECTED
         
         if not success:
             break
@@ -261,7 +255,7 @@ async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[AvId]:
     return all_avids
 
 
-async def get_favourite_avids_incremental(fetcher: Fetcher, fid: FId, existing_urls: set) -> List[AvId]:
+async def get_favourite_avids_incremental(fetcher: Fetcher, fid: FId, existing_urls: set) -> List[AvId] | str:
     """增量获取收藏夹视频列表（支持实时查重，发现重复时停止获取）"""
     Logger.info(f"增量获取收藏夹 {fid} 的视频列表...")
     
@@ -298,18 +292,9 @@ async def get_favourite_avids_incremental(fetcher: Fetcher, fid: FId, existing_u
                 break
                 
             except Exception as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (attempt + 1)
-                    Logger.warning(f"获取收藏夹异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}，等待 {delay:.1f} 秒后重试...")
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    if pn == 1:
-                        raise Exception(f"获取收藏夹 {fid} 视频列表失败: {e}")
-                    else:
-                        Logger.info(f"页面 {pn} 最终失败，结束获取")
-                        success = True
-                        break
+                Logger.warning(f"获取收藏夹异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}")
+                # 任何获取视频列表的失败都返回特殊指令
+                return RISK_CONTROL_DETECTED
         
         if not success:
             break
@@ -358,7 +343,7 @@ async def get_favourite_avids_incremental(fetcher: Fetcher, fid: FId, existing_u
     return new_avids
 
 
-async def get_user_space_videos(fetcher: Fetcher, mid: MId) -> List[AvId]:
+async def get_user_space_videos(fetcher: Fetcher, mid: MId) -> List[AvId] | str:
     """获取用户空间视频URL列表（仅获取ID，不获取详细信息）- 带重试机制"""
     Logger.info(f"获取用户 {mid} 的投稿视频列表...")
     
@@ -424,18 +409,8 @@ async def get_user_space_videos(fetcher: Fetcher, mid: MId) -> List[AvId]:
                 
             except Exception as e:
                 Logger.warning(f"请求异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    delay = base_delay * (attempt + 1)
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    if pn == 1:
-                        Logger.error(f"获取用户 {mid} 投稿视频最终失败")
-                        return []
-                    else:
-                        Logger.info(f"页面 {pn} 最终失败，结束获取")
-                        success = True
-                        break
+                # 任何获取视频列表的失败都返回特殊指令
+                return RISK_CONTROL_DETECTED
         
         if not success:
             break
@@ -470,7 +445,7 @@ async def get_user_space_videos(fetcher: Fetcher, mid: MId) -> List[AvId]:
     return all_avids
 
 
-async def get_user_space_videos_incremental(fetcher: Fetcher, mid: MId, existing_urls: set) -> List[AvId]:
+async def get_user_space_videos_incremental(fetcher: Fetcher, mid: MId, existing_urls: set) -> List[AvId] | str:
     """增量获取用户空间视频列表（支持实时查重，发现重复时停止获取）"""
     Logger.info(f"增量获取用户 {mid} 的投稿视频列表...")
     
@@ -537,18 +512,8 @@ async def get_user_space_videos_incremental(fetcher: Fetcher, mid: MId, existing
                 
             except Exception as e:
                 Logger.warning(f"请求异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    delay = base_delay * (attempt + 1)
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    if pn == 1:
-                        Logger.error(f"获取用户 {mid} 投稿视频最终失败")
-                        return []
-                    else:
-                        Logger.info(f"页面 {pn} 最终失败，结束获取")
-                        success = True
-                        break
+                # 任何获取视频列表的失败都返回特殊指令
+                return RISK_CONTROL_DETECTED
         
         if not success:
             break
@@ -865,42 +830,52 @@ async def get_user_name(fetcher: Fetcher, mid: MId) -> str:
     return f"用户{mid}"
 
 
-async def get_series_videos(fetcher: Fetcher, series_id: SeriesId, mid: MId) -> List[AvId]:
+async def get_series_videos(fetcher: Fetcher, series_id: SeriesId, mid: MId) -> List[AvId] | str:
     """获取视频列表/合集URL列表（仅获取ID，不获取详细信息）"""
-    api = f"https://api.bilibili.com/x/series/archives?mid={mid}&series_id={series_id}&only_normal=true&pn=1&ps=30"
-    res_json = await fetcher.fetch_json(api)
-    
-    if not res_json or res_json.get("code") != 0:
-        raise Exception(f"无法获取视频列表 {series_id}")
-    
-    avids = []
-    for video in res_json["data"]["archives"]:
-        avids.append(BvId(video["bvid"]))
-    
-    Logger.info(f"视频列表 {series_id} 共获取到 {len(avids)} 个视频ID")
-    return avids
+    try:
+        api = f"https://api.bilibili.com/x/series/archives?mid={mid}&series_id={series_id}&only_normal=true&pn=1&ps=30"
+        res_json = await fetcher.fetch_json(api)
+        
+        if not res_json or res_json.get("code") != 0:
+            raise Exception(f"无法获取视频列表 {series_id}")
+        
+        avids = []
+        for video in res_json["data"]["archives"]:
+            avids.append(BvId(video["bvid"]))
+        
+        Logger.info(f"视频列表 {series_id} 共获取到 {len(avids)} 个视频ID")
+        return avids
+    except Exception as e:
+        Logger.warning(f"获取视频列表异常: {e}")
+        # 任何获取视频列表的失败都返回特殊指令
+        return RISK_CONTROL_DETECTED
 
 
-async def get_watch_later_avids(fetcher: Fetcher) -> List[AvId]:
+async def get_watch_later_avids(fetcher: Fetcher) -> List[AvId] | str:
     """获取稍后再看URL列表（仅获取ID，不获取详细信息）"""
-    api = "https://api.bilibili.com/x/v2/history/toview/web"
-    res_json = await fetcher.fetch_json(api)
-    
-    if not res_json:
-        raise Exception("无法获取稍后再看列表")
-    
-    if res_json.get("code") in [-101, -400]:
-        raise Exception("账号未登录，无法获取稍后再看列表")
-    
-    if res_json.get("code") != 0:
-        raise Exception(f"获取稍后再看列表失败: {res_json.get('message')}")
-    
-    avids = []
-    for video in res_json["data"]["list"]:
-        avids.append(BvId(video["bvid"]))
-    
-    Logger.info(f"稍后再看共获取到 {len(avids)} 个视频ID")
-    return avids
+    try:
+        api = "https://api.bilibili.com/x/v2/history/toview/web"
+        res_json = await fetcher.fetch_json(api)
+        
+        if not res_json:
+            raise Exception("无法获取稍后再看列表")
+        
+        if res_json.get("code") in [-101, -400]:
+            raise Exception("账号未登录，无法获取稍后再看列表")
+        
+        if res_json.get("code") != 0:
+            raise Exception(f"获取稍后再看列表失败: {res_json.get('message')}")
+        
+        avids = []
+        for video in res_json["data"]["list"]:
+            avids.append(BvId(video["bvid"]))
+        
+        Logger.info(f"稍后再看共获取到 {len(avids)} 个视频ID")
+        return avids
+    except Exception as e:
+        Logger.warning(f"获取稍后再看列表异常: {e}")
+        # 任何获取视频列表的失败都返回特殊指令
+        return RISK_CONTROL_DETECTED
 
 
 async def get_season_id_by_media_id(fetcher: Fetcher, media_id: str) -> str:

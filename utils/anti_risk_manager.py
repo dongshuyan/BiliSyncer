@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 from .logger import Logger
 from .fetcher import Fetcher
 from extractors import extract_video_list
+from api.bilibili import RISK_CONTROL_DETECTED
 
 
 class AntiRiskManager:
@@ -50,6 +51,12 @@ class AntiRiskManager:
         try:
             # 尝试获取视频列表的第一页
             video_list = await extract_video_list(fetcher, test_url['url'])
+            
+            # 检查是否返回了风控检测指令
+            if video_list == RISK_CONTROL_DETECTED:
+                Logger.warning("测试URL返回风控检测指令，确认受到风控")
+                return True
+            
             videos = video_list.get("videos", [])
             
             if videos:
@@ -76,6 +83,12 @@ class AntiRiskManager:
         try:
             # 尝试获取视频列表的第一页
             video_list = await extract_video_list(fetcher, test_url['url'])
+            
+            # 检查是否返回了风控检测指令
+            if video_list == RISK_CONTROL_DETECTED:
+                Logger.warning("测试URL返回风控检测指令，风控仍未解除")
+                return False
+            
             videos = video_list.get("videos", [])
             
             if videos and len(videos) >= 5:  # 至少5个视频才算解除风控

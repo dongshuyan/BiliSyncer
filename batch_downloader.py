@@ -18,7 +18,12 @@ from utils.logger import Logger
 from utils.csv_manager import CSVManager
 from utils.anti_risk_manager import get_anti_risk_manager
 from extractors import extract_video_list, extract_video_list_incremental
-from api.bilibili import get_ugc_video_list, get_bangumi_episode_info, get_cheese_episode_info
+from api.bilibili import (
+    RISK_CONTROL_DETECTED,
+    get_ugc_video_list,
+    get_bangumi_episode_info,
+    get_cheese_episode_info,
+)
 
 
 class BatchDownloader:
@@ -581,6 +586,18 @@ class BatchDownloader:
                     # 首次获取，使用普通提取
                     Logger.info("首次获取，使用普通提取模式")
                     video_list = await extract_video_list(self.fetcher, original_url)
+                
+                # 检查是否返回了风控检测指令
+                if video_list == RISK_CONTROL_DETECTED:
+                    Logger.warning("检测到获取视频列表失败，触发风控检测")
+                    is_risk_controlled = await self.anti_risk_manager.check_risk_control(self.fetcher)
+                    if is_risk_controlled:
+                        Logger.warning("确认受到风控，设置风控状态")
+                        self.anti_risk_manager.set_risk_controlled(True)
+                        raise Exception("风控检测：获取视频列表失败，可能受到风控")
+                    else:
+                        Logger.warning("未检测到风控，但获取视频列表失败")
+                        raise Exception("获取视频列表失败，非风控原因")
                 
                 new_videos = video_list["videos"]
             except Exception as e:
