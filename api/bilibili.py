@@ -261,6 +261,103 @@ async def get_favourite_avids(fetcher: Fetcher, fid: FId) -> List[AvId]:
     return all_avids
 
 
+async def get_favourite_avids_incremental(fetcher: Fetcher, fid: FId, existing_urls: set) -> List[AvId]:
+    """增量获取收藏夹视频列表（支持实时查重，发现重复时停止获取）"""
+    Logger.info(f"增量获取收藏夹 {fid} 的视频列表...")
+    
+    new_avids = []
+    pn = 1
+    ps = 20  # 每页数量
+    max_retries = 3
+    base_delay = 1.0
+    duplicate_found = False
+    
+    while not duplicate_found:
+        api = f"https://api.bilibili.com/x/v3/fav/resource/list?media_id={fid}&pn={pn}&ps={ps}"
+        
+        # 带重试的请求
+        success = False
+        for attempt in range(max_retries):
+            try:
+                res_json = await fetcher.fetch_json(api)
+                
+                if not res_json or res_json.get("code") != 0:
+                    if pn == 1 and attempt == max_retries - 1:  # 第一页失败，抛出异常
+                        raise Exception(f"无法获取收藏夹 {fid} 视频列表")
+                    elif pn > 1:  # 后续页面失败，可能是没有更多数据
+                        Logger.info(f"页面 {pn} 获取失败，结束获取")
+                        success = True
+                        break
+                    else:
+                        delay = base_delay * (attempt + 1)
+                        Logger.warning(f"获取收藏夹页面失败 (页面 {pn}，尝试 {attempt + 1}/{max_retries})，等待 {delay:.1f} 秒后重试...")
+                        await asyncio.sleep(delay)
+                        continue
+                
+                success = True
+                break
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (attempt + 1)
+                    Logger.warning(f"获取收藏夹异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}，等待 {delay:.1f} 秒后重试...")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    if pn == 1:
+                        raise Exception(f"获取收藏夹 {fid} 视频列表失败: {e}")
+                    else:
+                        Logger.info(f"页面 {pn} 最终失败，结束获取")
+                        success = True
+                        break
+        
+        if not success:
+            break
+        
+        if res_json and res_json.get("code") == 0:
+            medias = res_json["data"]["medias"]
+            if not medias:
+                break
+            
+            # 实时查重：检查当前页面的视频是否已存在
+            page_new_avids = []
+            for video_info in medias:
+                bvid = BvId(video_info["bvid"])
+                video_url = bvid.to_url()
+                
+                if video_url in existing_urls:
+                    # 发现重复，停止获取
+                    Logger.info(f"发现重复视频 {bvid}，停止获取（已获取 {len(new_avids)} 个新视频）")
+                    duplicate_found = True
+                    break
+                else:
+                    # 新视频，添加到列表
+                    page_new_avids.append(bvid)
+                    new_avids.append(bvid)
+            
+            # 如果当前页面有重复，不再处理后续页面
+            if duplicate_found:
+                break
+            
+            # 检查是否还有更多页面
+            data = res_json["data"]
+            if data.get("has_more", False):
+                pn += 1
+                # 添加延迟避免请求过快
+                await asyncio.sleep(0.5)
+            else:
+                break
+        else:
+            break
+    
+    if duplicate_found:
+        Logger.info(f"增量获取完成：发现重复视频，共获取到 {len(new_avids)} 个新视频")
+    else:
+        Logger.info(f"增量获取完成：收藏夹 {fid} 共获取到 {len(new_avids)} 个新视频")
+    
+    return new_avids
+
+
 async def get_user_space_videos(fetcher: Fetcher, mid: MId) -> List[AvId]:
     """获取用户空间视频URL列表（仅获取ID，不获取详细信息）- 带重试机制"""
     Logger.info(f"获取用户 {mid} 的投稿视频列表...")
@@ -371,6 +468,139 @@ async def get_user_space_videos(fetcher: Fetcher, mid: MId) -> List[AvId]:
     
     Logger.info(f"用户 {mid} 共获取到 {len(all_avids)} 个投稿视频ID")
     return all_avids
+
+
+async def get_user_space_videos_incremental(fetcher: Fetcher, mid: MId, existing_urls: set) -> List[AvId]:
+    """增量获取用户空间视频列表（支持实时查重，发现重复时停止获取）"""
+    Logger.info(f"增量获取用户 {mid} 的投稿视频列表...")
+    
+    max_retries = 10
+    base_delay = 2.0
+    
+    # 获取WBI签名信息
+    wbi_img = await get_wbi_img(fetcher)
+    
+    space_videos_api = "https://api.bilibili.com/x/space/wbi/arc/search"
+    ps = 30  # 每页数量
+    pn = 1
+    total_pages = 1
+    new_avids = []
+    duplicate_found = False
+    
+    while pn <= total_pages and not duplicate_found:
+        # 构建参数
+        params = {
+            "mid": str(mid),
+            "ps": ps,
+            "tid": 0,
+            "pn": pn,
+            "order": "pubdate",
+        }
+        
+        # 应用WBI签名
+        signed_params = encode_wbi(params, wbi_img)
+        
+        # 带重试机制的请求
+        success = False
+        for attempt in range(max_retries):
+            try:
+                # 发起请求
+                res_json = await fetcher.fetch_json(space_videos_api, signed_params)
+                
+                if not res_json:
+                    raise Exception("无响应")
+                
+                if res_json.get("code") == -352:
+                    # 风控校验失败，需要重试
+                    delay = base_delay * (2 ** attempt)  # 指数退避
+                    Logger.warning(f"风控校验失败 (页面 {pn}，尝试 {attempt + 1}/{max_retries})，等待 {delay:.1f} 秒后重试...")
+                    await asyncio.sleep(delay)
+                    continue
+                elif res_json.get("code") != 0:
+                    if pn == 1 and attempt == max_retries - 1:
+                        Logger.error(f"无法获取用户 {mid} 的投稿视频: {res_json.get('message')}")
+                        return []
+                    elif pn > 1:
+                        # 后续页面失败，可能没有更多数据
+                        Logger.info(f"页面 {pn} 获取失败，结束获取")
+                        success = True
+                        break
+                    else:
+                        delay = base_delay * (attempt + 1)
+                        Logger.warning(f"请求失败 (页面 {pn}，尝试 {attempt + 1}/{max_retries})，等待 {delay:.1f} 秒后重试...")
+                        await asyncio.sleep(delay)
+                        continue
+                
+                # 成功获取数据
+                success = True
+                break
+                
+            except Exception as e:
+                Logger.warning(f"请求异常 (页面 {pn}，尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (attempt + 1)
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    if pn == 1:
+                        Logger.error(f"获取用户 {mid} 投稿视频最终失败")
+                        return []
+                    else:
+                        Logger.info(f"页面 {pn} 最终失败，结束获取")
+                        success = True
+                        break
+        
+        if not success:
+            break
+        
+        # 解析数据并实时查重
+        if res_json and res_json.get("code") == 0:
+            data = res_json.get("data", {})
+            list_data = data.get("list", {})
+            vlist = list_data.get("vlist", [])
+            
+            if not vlist:
+                break
+            
+            # 实时查重：检查当前页面的视频是否已存在
+            page_new_avids = []
+            for video in vlist:
+                bvid = BvId(video["bvid"])
+                video_url = bvid.to_url()
+                
+                if video_url in existing_urls:
+                    # 发现重复，停止获取
+                    Logger.info(f"发现重复视频 {bvid}，停止获取（已获取 {len(new_avids)} 个新视频）")
+                    duplicate_found = True
+                    break
+                else:
+                    # 新视频，添加到列表
+                    page_new_avids.append(bvid)
+                    new_avids.append(bvid)
+            
+            # 如果当前页面有重复，不再处理后续页面
+            if duplicate_found:
+                break
+            
+            # 计算总页数
+            page_info = data.get("page", {})
+            total_count = page_info.get("count", 0)
+            total_pages = (total_count + ps - 1) // ps  # 向上取整
+            
+            Logger.debug(f"已获取第 {pn}/{total_pages} 页，新增 {len(page_new_avids)} 个视频ID")
+        
+        pn += 1
+        
+        # 添加延迟避免请求过快
+        if pn <= total_pages and not duplicate_found:
+            await asyncio.sleep(0.5)
+    
+    if duplicate_found:
+        Logger.info(f"增量获取完成：发现重复视频，共获取到 {len(new_avids)} 个新视频")
+    else:
+        Logger.info(f"增量获取完成：用户 {mid} 共获取到 {len(new_avids)} 个新视频")
+    
+    return new_avids
 
 
 # WBI签名相关变量

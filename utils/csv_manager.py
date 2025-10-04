@@ -496,6 +496,22 @@ class CSVManager:
             'pending': pending
         }
     
+    def get_existing_video_urls(self) -> set:
+        """获取现有视频的URL集合，用于增量获取时的查重"""
+        videos = self.load_video_list()
+        if not videos:
+            return set()
+        
+        # 提取所有video_url
+        existing_urls = set()
+        for video in videos:
+            video_url = video.get('video_url', '').strip()
+            if video_url:
+                existing_urls.add(video_url)
+        
+        Logger.debug(f"现有视频URL数量: {len(existing_urls)}")
+        return existing_urls
+    
     def get_original_url(self) -> Optional[str]:
         """从CSV文件中获取原始URL"""
         csv_path = self._find_latest_csv()

@@ -14,7 +14,8 @@ from api.bilibili import (
     get_series_videos, get_watch_later_avids, get_bangumi_list,
     get_season_id_by_media_id, get_season_id_by_episode_id, get_user_name,
     get_ugc_video_list, get_bangumi_episode_list, get_bangumi_episode_info,
-    get_cheese_episode_list, get_cheese_season_id_by_episode_id
+    get_cheese_episode_list, get_cheese_season_id_by_episode_id,
+    get_favourite_avids_incremental, get_user_space_videos_incremental
 )
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
@@ -37,6 +38,11 @@ class URLExtractor(ABC):
     async def extract(self, fetcher: Fetcher, url: str) -> VideoListData:
         """提取视频列表"""
         pass
+    
+    async def extract_incremental(self, fetcher: Fetcher, url: str, existing_urls: set) -> VideoListData:
+        """增量提取视频列表（支持实时查重）"""
+        # 默认实现：回退到普通提取
+        return await self.extract(fetcher, url)
     
     def resolve_shortcut(self, url: str) -> Tuple[bool, str]:
         """解析快捷方式"""
@@ -184,6 +190,39 @@ class FavouriteExtractor(URLExtractor):
             videos.append(video)
         
         return {"title": folder_name, "videos": videos}
+    
+    async def extract_incremental(self, fetcher: Fetcher, url: str, existing_urls: set) -> VideoListData:
+        """增量提取收藏夹视频（支持实时查重）"""
+        match_obj = self.REGEX_FAV.match(url)
+        if not match_obj:
+            raise ValueError(f"无法解析收藏夹URL: {url}")
+        
+        fid = FId(match_obj.group("fid"))
+        Logger.info(f"增量提取收藏夹: {fid}")
+        
+        fav_info = await get_favourite_info(fetcher, fid)
+        avids = await get_favourite_avids_incremental(fetcher, fid, existing_urls)
+        
+        # 修改文件夹命名格式：收藏夹-收藏夹ID-收藏夹名
+        folder_name = f"收藏夹-{fid}-{fav_info['title']}"
+        
+        videos = []
+        for avid in avids:
+            # 创建占位符视频条目，稍后按需获取详细信息
+            video = {
+                "avid": avid,
+                "cid": CId("0"),  # 占位符
+                "title": "",  # 空标题，稍后获取
+                "name": "",   # 空名称，稍后获取
+                "pubdate": 0, # 空发布时间，稍后获取
+                "author": "", # 空作者，稍后获取
+                "duration": 0, # 空时长，稍后获取
+                "path": Path(f"{folder_name}/{avid}"),  # 临时路径，下载时会更新为avid-title
+                "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
+            }
+            videos.append(video)
+        
+        return {"title": folder_name, "videos": videos}
 
 
 class SeriesExtractor(URLExtractor):
@@ -253,6 +292,40 @@ class UserSpaceExtractor(URLExtractor):
         # 获取用户名和视频列表（仅ID）
         username = await get_user_name(fetcher, mid)
         avids = await get_user_space_videos(fetcher, mid)
+        
+        # 修改文件夹命名格式：UP主-UP主UID-UP主名
+        folder_name = f"UP主-{mid}-{username}"
+        
+        videos = []
+        for avid in avids:
+            # 创建占位符视频条目，稍后按需获取详细信息
+            video = {
+                "avid": avid,
+                "cid": CId("0"),  # 占位符，下载时再获取
+                "title": "",  # 空标题，稍后获取
+                "name": "",   # 空名称，稍后获取
+                "pubdate": 0, # 空发布时间，稍后获取
+                "author": username, # 使用获取到的用户名
+                "duration": 0, # 空时长，稍后获取
+                "path": Path(f"{folder_name}/{avid}"),  # 临时路径，下载时会更新为avid-title
+                "status": "pending"  # 标记为待处理，需要下载时再获取详细信息
+            }
+            videos.append(video)
+        
+        return {"title": folder_name, "videos": videos}
+    
+    async def extract_incremental(self, fetcher: Fetcher, url: str, existing_urls: set) -> VideoListData:
+        """增量提取用户空间视频（支持实时查重）"""
+        match_obj = self.REGEX_SPACE.match(url)
+        if not match_obj:
+            raise ValueError(f"无法解析用户空间URL: {url}")
+        
+        mid = MId(match_obj.group("mid"))
+        Logger.info(f"增量提取用户空间: {mid}")
+        
+        # 获取用户名和增量视频列表（仅ID）
+        username = await get_user_name(fetcher, mid)
+        avids = await get_user_space_videos_incremental(fetcher, mid, existing_urls)
         
         # 修改文件夹命名格式：UP主-UP主UID-UP主名
         folder_name = f"UP主-{mid}-{username}"
@@ -398,5 +471,30 @@ async def extract_video_list(fetcher: Fetcher, url: str) -> VideoListData:
         if extractor.match(url):
             Logger.info(f"使用提取器: {extractor.__class__.__name__}")
             return await extractor.extract(fetcher, url)
+    
+    raise ValueError(f"不支持的URL类型: {url}")
+
+
+async def extract_video_list_incremental(fetcher: Fetcher, url: str, existing_urls: set) -> VideoListData:
+    """增量提取视频列表（支持实时查重）"""
+    # 首先尝试解析快捷方式
+    original_url = url
+    for extractor in EXTRACTORS:
+        matched, resolved_url = extractor.resolve_shortcut(url)
+        if matched:
+            url = resolved_url
+            Logger.info(f"快捷方式解析: {original_url} -> {url}")
+            break
+    
+    # 获取重定向后的URL
+    url = await fetcher.get_redirected_url(url)
+    if url != original_url:
+        Logger.info(f"URL重定向: {original_url} -> {url}")
+    
+    # 匹配提取器
+    for extractor in EXTRACTORS:
+        if extractor.match(url):
+            Logger.info(f"使用增量提取器: {extractor.__class__.__name__}")
+            return await extractor.extract_incremental(fetcher, url, existing_urls)
     
     raise ValueError(f"不支持的URL类型: {url}") 

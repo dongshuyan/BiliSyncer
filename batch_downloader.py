@@ -17,7 +17,7 @@ from utils.fetcher import Fetcher
 from utils.logger import Logger
 from utils.csv_manager import CSVManager
 from utils.anti_risk_manager import get_anti_risk_manager
-from extractors import extract_video_list
+from extractors import extract_video_list, extract_video_list_incremental
 from api.bilibili import get_ugc_video_list, get_bangumi_episode_info, get_cheese_episode_info
 
 
@@ -566,11 +566,22 @@ class BatchDownloader:
                 Logger.warning(f"任务目录 {task_dir.name} 的CSV文件为空，将重新获取视频列表")
                 existing_videos = []
             
-            # 从URL获取最新的视频列表
+            # 从URL获取最新的视频列表（使用增量获取优化）
             Logger.info("正在获取最新的视频列表...")
             try:
-                # 使用extract_video_list获取视频信息
-                video_list = await extract_video_list(self.fetcher, original_url)
+                # 获取现有视频URL集合用于查重
+                existing_urls = self.csv_manager.get_existing_video_urls()
+                Logger.debug(f"现有视频URL数量: {len(existing_urls)}")
+                
+                if existing_urls:
+                    # 使用增量提取，支持实时查重
+                    Logger.info("使用增量获取模式，支持实时查重")
+                    video_list = await extract_video_list_incremental(self.fetcher, original_url, existing_urls)
+                else:
+                    # 首次获取，使用普通提取
+                    Logger.info("首次获取，使用普通提取模式")
+                    video_list = await extract_video_list(self.fetcher, original_url)
+                
                 new_videos = video_list["videos"]
             except Exception as e:
                 error_msg = str(e).lower()
