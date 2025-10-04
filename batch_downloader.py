@@ -273,13 +273,12 @@ class BatchDownloader:
             Logger.warning(f"有 {remaining_count} 个任务因风控或其他原因未完成，可稍后重新执行批量更新")
     
     async def _wait_for_risk_control_resolution(self) -> None:
-        """等待风控解除"""
-        max_wait_time = 300  # 最大等待5分钟
-        check_interval = 30  # 每30秒检查一次
-        waited_time = 0
+        """等待风控解除（使用指数退避策略）"""
+        max_attempts = 6  # 最多尝试6次
+        base_delay = 60  # 基础延迟1分钟
         
-        while waited_time < max_wait_time:
-            Logger.info(f"等待风控解除... (已等待 {waited_time}s)")
+        for attempt in range(max_attempts):
+            Logger.info(f"等待风控解除... (第 {attempt + 1}/{max_attempts} 次尝试)")
             
             # 检查风控是否已解除
             risk_resolved = await self.anti_risk_manager.check_risk_resolved(self.fetcher)
@@ -287,11 +286,13 @@ class BatchDownloader:
                 Logger.info("风控已解除，继续处理任务")
                 return
             
-            # 等待一段时间后再次检查
-            await asyncio.sleep(check_interval)
-            waited_time += check_interval
+            # 如果不是最后一次尝试，等待指数退避时间
+            if attempt < max_attempts - 1:
+                delay_time = base_delay * (2 ** attempt)  # 1分钟、2分钟、4分钟、8分钟、16分钟
+                Logger.info(f"风控未解除，等待 {delay_time} 秒后进行第 {attempt + 2} 次尝试...")
+                await asyncio.sleep(delay_time)
         
-        Logger.warning(f"等待风控解除超时 ({max_wait_time}s)，暂停处理")
+        Logger.warning(f"等待风控解除超时（已尝试 {max_attempts} 次），暂停处理")
     
     async def update_single_task(self, task_directory: Path) -> None:
         """定向更新单个任务目录"""
