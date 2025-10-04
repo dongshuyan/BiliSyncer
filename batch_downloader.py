@@ -8,7 +8,7 @@ import sys
 import shutil
 import glob
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import re
 import time
 
@@ -16,6 +16,7 @@ from utils.types import VideoListData, VideoInfo, DownloadOptions, AId, BvId, CI
 from utils.fetcher import Fetcher
 from utils.logger import Logger
 from utils.csv_manager import CSVManager
+from utils.anti_risk_manager import get_anti_risk_manager
 from extractors import extract_video_list
 from api.bilibili import get_ugc_video_list, get_bangumi_episode_info, get_cheese_episode_info
 
@@ -33,6 +34,7 @@ class BatchDownloader:
         self.task_control = task_control or {}
         self.fetcher = Fetcher(sessdata=sessdata)
         self.csv_manager = None  # 稍后根据任务创建
+        self.anti_risk_manager = get_anti_risk_manager()
     
     def _should_stop(self) -> bool:
         """检查是否应该停止任务"""
@@ -159,6 +161,16 @@ class BatchDownloader:
     async def update_all_tasks(self) -> None:
         """更新所有任务：扫描输出目录下的所有任务并检查更新"""
         try:
+            # 检查风控状态
+            if self.anti_risk_manager.is_risk_controlled:
+                Logger.info("当前处于风控状态，检查风控是否已解除...")
+                risk_resolved = await self.anti_risk_manager.check_risk_resolved(self.fetcher)
+                if not risk_resolved:
+                    Logger.warning("风控未解除，跳过批量更新")
+                    return
+                else:
+                    Logger.info("风控已解除，继续批量更新")
+            
             # 扫描所有一级子目录
             all_dirs = [d for d in self.output_dir.iterdir() if d.is_dir()]
             
@@ -514,19 +526,43 @@ class BatchDownloader:
                 
                 raise
 
-            # 新增策略：若列表为空或标题已更改，则禁用该任务目录（重命名为无效前缀）
+            # 新增策略：若列表为空或标题已更改，先检测风控再决定是否禁用目录
             try:
                 new_title = str(video_list.get("title", "")).strip()
                 current_dir_name = task_dir.name
                 title_changed = bool(new_title) and (new_title != current_dir_name)
                 list_empty = not new_videos or len(new_videos) == 0
-                if title_changed or list_empty:
-                    reason = "视频列表为空" if list_empty else "标题已更改"
-                    Logger.warning(f"检测到更新异常（{reason}），将禁用任务目录: {current_dir_name}")
-                    self._disable_task_directory(task_dir, reason)
+                
+                if title_changed:
+                    # 标题已更改，直接禁用目录
+                    Logger.warning(f"检测到标题已更改，将禁用任务目录: {current_dir_name}")
+                    self._disable_task_directory(task_dir, "标题已更改")
                     return
-            except Exception:
-                # 若禁用流程出错，不影响后续逻辑
+                elif list_empty:
+                    # 视频列表为空，先检测是否受到风控
+                    Logger.warning(f"检测到视频列表为空，开始风控检测: {current_dir_name}")
+                    
+                    # 检查当前是否已处于风控状态
+                    if self.anti_risk_manager.is_risk_controlled:
+                        Logger.info("当前处于风控状态，跳过此任务")
+                        return
+                    
+                    # 检测是否受到风控
+                    is_risk_controlled = await self.anti_risk_manager.check_risk_control(self.fetcher)
+                    
+                    if is_risk_controlled:
+                        Logger.warning("检测到风控，暂停获取新视频列表")
+                        self.anti_risk_manager.set_risk_controlled(True)
+                        return
+                    else:
+                        # 没有风控，确实是视频列表为空，禁用目录
+                        Logger.warning(f"确认视频列表为空（非风控），将禁用任务目录: {current_dir_name}")
+                        self._disable_task_directory(task_dir, "视频列表为空")
+                        return
+                        
+            except Exception as e:
+                Logger.error(f"处理空列表逻辑时出错: {e}")
+                # 若处理流程出错，不影响后续逻辑
                 pass
             
             if not new_videos:
@@ -534,6 +570,26 @@ class BatchDownloader:
                 return
             
             Logger.info(f"获取到 {len(new_videos)} 个视频")
+            
+            # 成功获取到视频列表，添加到风控检测的测试URL列表
+            try:
+                # 根据URL类型确定类型标识
+                url_type = "unknown"
+                if "space.bilibili.com" in original_url:
+                    url_type = "up主"
+                elif "favlist" in original_url:
+                    url_type = "收藏夹"
+                elif "series" in original_url:
+                    url_type = "视频合集"
+                elif "cheese" in original_url:
+                    url_type = "课程"
+                elif "bangumi" in original_url:
+                    url_type = "番剧"
+                
+                self.anti_risk_manager.add_successful_url(original_url, url_type)
+                Logger.debug(f"已添加成功URL到风控检测列表: {original_url} (类型: {url_type})")
+            except Exception as e:
+                Logger.error(f"添加成功URL到风控检测列表失败: {e}")
             
             # 检查是否有新增视频
             if existing_videos:
@@ -1305,6 +1361,18 @@ class BatchDownloader:
             }
         
         return video_info  # type: ignore 
+    
+    def get_risk_status(self) -> Dict[str, Any]:
+        """获取风控状态信息"""
+        return self.anti_risk_manager.get_risk_status()
+    
+    def get_test_urls(self) -> List[Dict[str, Any]]:
+        """获取测试URL列表"""
+        return self.anti_risk_manager.get_test_urls()
+    
+    def clear_test_urls(self) -> None:
+        """清空测试URL列表"""
+        self.anti_risk_manager.clear_test_urls()
 
     def _disable_task_directory(self, task_dir: Path, reason: str) -> None:
         """通过重命名方式禁用任务目录，使其不再被更新扫描识别"""
