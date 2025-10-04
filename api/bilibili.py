@@ -554,42 +554,7 @@ async def get_user_name(fetcher: Fetcher, mid: MId) -> str:
     for round_num in range(max_rounds):
         round_start = round_num + 1
         
-        # 第一次尝试：原有方法
-        try:
-            Logger.debug(f"第{round_start}轮-原有方法: 获取WBI签名...")
-            wbi_img = await get_wbi_img(fetcher)
-            params = {"mid": str(mid)}
-            signed_params = encode_wbi(params, wbi_img)
-            
-            space_info_api = "https://api.bilibili.com/x/space/wbi/acc/info"
-            await fetcher.get_redirected_url("https://www.bilibili.com")
-            
-            user_info = await fetcher.fetch_json(space_info_api, signed_params)
-            
-            if not user_info:
-                raise Exception("无响应")
-            
-            if user_info.get("code") == -404:
-                Logger.warning(f"用户 {mid} 不存在，疑似注销或被封禁")
-                return f"用户{mid}"
-            elif user_info.get("code") == -352:
-                # 风控校验失败，尝试yutto风格方法
-                Logger.warning(f"第{round_start}轮-原有方法: 风控校验失败，尝试yutto风格方法...")
-                raise Exception("风控校验失败")
-            elif user_info.get("code") != 0:
-                error_msg = user_info.get('message', 'Unknown error')
-                Logger.warning(f"第{round_start}轮-原有方法: API错误 {error_msg}，尝试yutto风格方法...")
-                raise Exception(f"API错误: {error_msg}")
-            else:
-                # 成功获取用户信息
-                username = user_info.get("data", {}).get("name", f"用户{mid}")
-                Logger.info(f"用户 {mid} 的用户名: {username} (第{round_start}轮-原有方法成功)")
-                return username
-                
-        except Exception as e:
-            Logger.debug(f"第{round_start}轮-原有方法失败: {e}")
-        
-        # 第二次尝试：yutto风格方法
+        # 第一次尝试：yutto风格方法（优先使用，成功率更高）
         try:
             Logger.debug(f"第{round_start}轮-yutto风格: 获取WBI签名...")
             wbi_img = await get_wbi_img_yutto_style(fetcher)
@@ -623,6 +588,41 @@ async def get_user_name(fetcher: Fetcher, mid: MId) -> str:
                 
         except Exception as e:
             Logger.debug(f"第{round_start}轮-yutto风格失败: {e}")
+        
+        # 第二次尝试：原有方法（备用方案）
+        try:
+            Logger.debug(f"第{round_start}轮-原有方法: 获取WBI签名...")
+            wbi_img = await get_wbi_img(fetcher)
+            params = {"mid": str(mid)}
+            signed_params = encode_wbi(params, wbi_img)
+            
+            space_info_api = "https://api.bilibili.com/x/space/wbi/acc/info"
+            await fetcher.get_redirected_url("https://www.bilibili.com")
+            
+            user_info = await fetcher.fetch_json(space_info_api, signed_params)
+            
+            if not user_info:
+                raise Exception("无响应")
+            
+            if user_info.get("code") == -404:
+                Logger.warning(f"用户 {mid} 不存在，疑似注销或被封禁")
+                return f"用户{mid}"
+            elif user_info.get("code") == -352:
+                # 风控校验失败，准备下一轮
+                Logger.warning(f"第{round_start}轮-原有方法: 风控校验失败，准备下一轮...")
+                raise Exception("风控校验失败")
+            elif user_info.get("code") != 0:
+                error_msg = user_info.get('message', 'Unknown error')
+                Logger.warning(f"第{round_start}轮-原有方法: API错误 {error_msg}，准备下一轮...")
+                raise Exception(f"API错误: {error_msg}")
+            else:
+                # 成功获取用户信息
+                username = user_info.get("data", {}).get("name", f"用户{mid}")
+                Logger.info(f"用户 {mid} 的用户名: {username} (第{round_start}轮-原有方法成功)")
+                return username
+                
+        except Exception as e:
+            Logger.debug(f"第{round_start}轮-原有方法失败: {e}")
         
         # 本轮两种方法都失败，等待后进入下一轮
         if round_num < max_rounds - 1:  # 不是最后一轮
