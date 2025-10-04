@@ -198,42 +198,100 @@ class BatchDownloader:
             
             Logger.info(f"发现 {len(task_dirs)} 个任务目录")
             
-            updated_count = 0
-            error_count = 0
-            
-            for task_dir in task_dirs:
-                Logger.info(f"检查任务目录: {task_dir.name}")
-                
-                try:
-                    await self._update_single_task_directory(task_dir)
-                    updated_count += 1
-                    Logger.info(f"✅ 任务更新成功: {task_dir.name}")
-                    
-                except Exception as e:
-                    error_count += 1
-                    error_type = type(e).__name__
-                    Logger.error(f"❌ 更新任务失败 {task_dir.name} ({error_type}): {e}")
-                    
-                    # 根据错误类型提供更具体的建议
-                    if "CSV" in str(e) or "encoding" in str(e).lower():
-                        Logger.warning(f"   建议：检查 {task_dir.name} 目录下的CSV文件格式和编码")
-                    elif "URL" in str(e) or "network" in str(e).lower():
-                        Logger.warning(f"   建议：检查网络连接和原始URL的有效性")
-                    elif "permission" in str(e).lower():
-                        Logger.warning(f"   建议：检查 {task_dir.name} 目录的读写权限")
-                    
-                    continue
-            
-            # 显示详细的完成统计
-            total_tasks = len(task_dirs)
-            Logger.custom(f"批量更新完成 - 成功: {updated_count}, 失败: {error_count}, 总计: {total_tasks}", "批量更新")
-            
-            if error_count > 0:
-                Logger.warning(f"有 {error_count} 个任务更新失败，请检查上述错误信息")
+            # 使用任务队列机制处理风控等待
+            await self._process_tasks_with_risk_control(task_dirs)
             
         except Exception as e:
             Logger.error(f"批量更新失败: {e}")
             raise
+    
+    async def _process_tasks_with_risk_control(self, task_dirs: List[Path]) -> None:
+        """使用任务队列机制处理风控等待"""
+        pending_tasks = list(task_dirs)  # 待处理任务队列
+        completed_tasks = []  # 已完成任务
+        error_count = 0
+        
+        Logger.info(f"开始处理 {len(pending_tasks)} 个任务")
+        
+        while pending_tasks:
+            # 检查是否应该停止
+            if self._should_stop():
+                Logger.warning("任务被手动停止")
+                break
+            
+            # 检查风控状态
+            if self.anti_risk_manager.is_risk_controlled:
+                Logger.info("检测到风控状态，等待风控解除...")
+                await self._wait_for_risk_control_resolution()
+                if self.anti_risk_manager.is_risk_controlled:
+                    Logger.warning("风控仍未解除，暂停处理剩余任务")
+                    break
+            
+            # 处理当前任务
+            current_task = pending_tasks[0]
+            Logger.info(f"处理任务: {current_task.name}")
+            
+            try:
+                await self._update_single_task_directory(current_task)
+                completed_tasks.append(current_task)
+                pending_tasks.remove(current_task)
+                Logger.info(f"✅ 任务完成: {current_task.name}")
+                
+            except Exception as e:
+                error_msg = str(e)
+                error_type = type(e).__name__
+                
+                # 检查是否为风控异常
+                if "风控检测" in error_msg:
+                    Logger.warning(f"任务 {current_task.name} 遇到风控，暂停处理")
+                    # 不移除任务，等待风控解除后重新处理
+                    break
+                else:
+                    error_count += 1
+                    Logger.error(f"❌ 任务失败 {current_task.name} ({error_type}): {e}")
+                    
+                    # 根据错误类型提供建议
+                    if "CSV" in error_msg or "encoding" in error_msg.lower():
+                        Logger.warning(f"   建议：检查 {current_task.name} 目录下的CSV文件格式和编码")
+                    elif "URL" in error_msg or "network" in error_msg.lower():
+                        Logger.warning(f"   建议：检查网络连接和原始URL的有效性")
+                    elif "permission" in error_msg.lower():
+                        Logger.warning(f"   建议：检查 {current_task.name} 目录的读写权限")
+                    
+                    # 移除失败的任务，避免无限循环
+                    pending_tasks.remove(current_task)
+                    continue
+        
+        # 显示完成统计
+        total_tasks = len(task_dirs)
+        completed_count = len(completed_tasks)
+        remaining_count = len(pending_tasks)
+        
+        Logger.custom(f"批量更新完成 - 成功: {completed_count}, 失败: {error_count}, 剩余: {remaining_count}, 总计: {total_tasks}", "批量更新")
+        
+        if remaining_count > 0:
+            Logger.warning(f"有 {remaining_count} 个任务因风控或其他原因未完成，可稍后重新执行批量更新")
+    
+    async def _wait_for_risk_control_resolution(self) -> None:
+        """等待风控解除"""
+        max_wait_time = 300  # 最大等待5分钟
+        check_interval = 30  # 每30秒检查一次
+        waited_time = 0
+        
+        while waited_time < max_wait_time:
+            Logger.info(f"等待风控解除... (已等待 {waited_time}s)")
+            
+            # 检查风控是否已解除
+            risk_resolved = await self.anti_risk_manager.check_risk_resolved(self.fetcher)
+            if risk_resolved:
+                Logger.info("风控已解除，继续处理任务")
+                return
+            
+            # 等待一段时间后再次检查
+            await asyncio.sleep(check_interval)
+            waited_time += check_interval
+        
+        Logger.warning(f"等待风控解除超时 ({max_wait_time}s)，暂停处理")
     
     async def update_single_task(self, task_directory: Path) -> None:
         """定向更新单个任务目录"""
@@ -539,21 +597,16 @@ class BatchDownloader:
                     self._disable_task_directory(task_dir, "标题已更改")
                     return
                 elif list_empty:
-                    # 视频列表为空，先检测是否受到风控
+                    # 视频列表为空，检测是否受到风控
                     Logger.warning(f"检测到视频列表为空，开始风控检测: {current_dir_name}")
-                    
-                    # 检查当前是否已处于风控状态
-                    if self.anti_risk_manager.is_risk_controlled:
-                        Logger.info("当前处于风控状态，跳过此任务")
-                        return
                     
                     # 检测是否受到风控
                     is_risk_controlled = await self.anti_risk_manager.check_risk_control(self.fetcher)
                     
                     if is_risk_controlled:
-                        Logger.warning("检测到风控，暂停获取新视频列表")
+                        Logger.warning("检测到风控，设置风控状态并抛出异常以触发任务队列等待")
                         self.anti_risk_manager.set_risk_controlled(True)
-                        return
+                        raise Exception("风控检测：视频列表为空，暂停处理等待风控解除")
                     else:
                         # 没有风控，确实是视频列表为空，禁用目录
                         Logger.warning(f"确认视频列表为空（非风控），将禁用任务目录: {current_dir_name}")
