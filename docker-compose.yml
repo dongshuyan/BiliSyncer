@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  bilisyncer:
+    build: .
+    container_name: bilisyncer
+    ports:
+      - "5000:5000"
+    volumes:
+      # 挂载下载目录
+      - ./downloads:/app/downloads
+      # 挂载配置文件目录
+      - ./config:/app/config
+      # 挂载日志目录
+      - ./logs:/app/logs
+    environment:
+      # 设置时区
+      - TZ=Asia/Shanghai
+      # 设置Python路径
+      - PYTHONPATH=/app
+      # 标识Docker环境
+      - DOCKER_CONTAINER=true
+    # 使用当前用户运行（自动获取UID和GID）
+    user: "${UID:-1000}:${GID:-1000}"
+    restart: unless-stopped
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s 
