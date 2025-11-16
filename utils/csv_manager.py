@@ -26,12 +26,27 @@ class CSVManager:
         self.task_dir = task_dir
         self.task_dir.mkdir(parents=True, exist_ok=True)
     
+    def _extract_main_folder_from_path(self, path_value: Any) -> str:
+        """根据路径提取任务主目录名称"""
+        if isinstance(path_value, Path):
+            path_str = path_value.as_posix()
+        else:
+            path_str = str(path_value or "")
+        
+        if path_str:
+            parts = [part for part in path_str.replace("\\", "/").split("/") if part]
+            for part in parts:
+                if any(part.startswith(prefix) for prefix in TASK_FOLDER_PREFIXES):
+                    return part
+            if parts:
+                return parts[-2] if len(parts) >= 2 else parts[0]
+        
+        return self.task_dir.name
+    
     def _get_video_url_and_identifier(self, video: VideoInfo) -> Tuple[str, str]:
         """根据VideoInfo生成统一的video_url和标识"""
         episode_id = video.get('episode_id')
-        video_path = str(video.get('path', ''))
-        main_folder = video_path.split("/")[0] if video_path else ""
-        
+        main_folder = self._extract_main_folder_from_path(video.get('path'))
         if episode_id:
             if main_folder.startswith('课程-'):
                 video_url = f"https://www.bilibili.com/cheese/play/ep{episode_id}"
@@ -44,9 +59,28 @@ class CSVManager:
         
         return video_url, avid_str
     
+    def _derive_title_from_video(self, video: VideoInfo) -> str:
+        """推断标题，避免写入空值"""
+        candidates = [
+            str(video.get('title') or "").strip(),
+            str(video.get('name') or "").strip(),
+        ]
+        path_value = video.get('path')
+        if path_value:
+            if isinstance(path_value, Path):
+                candidates.append(path_value.name)
+            else:
+                candidates.append(Path(str(path_value)).name)
+        for candidate in candidates:
+            if candidate:
+                return candidate
+        return "未命名视频"
+    
     def _video_to_csv_row(self, video: VideoInfo, downloaded_override: Optional[str] = None) -> Dict[str, str]:
         """将VideoInfo转换成标准CSV行"""
         video_url, avid_str = self._get_video_url_and_identifier(video)
+        title_value = self._derive_title_from_video(video)
+        name_value = video.get('name') or title_value
         
         pubdate_unix = video.get('pubdate', 0)
         if pubdate_unix:
@@ -58,17 +92,19 @@ class CSVManager:
         if str(cid_value) == "0":
             cid_value = ""
         
-        download_path = self._normalize_download_path(video.get('path'))
+        download_path = self._format_download_path(video.get('path'))
         
         is_unavailable = video.get('status') == 'unavailable'
         downloaded_flag = downloaded_override if downloaded_override is not None else ('True' if is_unavailable else 'False')
         
+        folder_size_value = int(video.get('folder_size', 0) or 0)
+        
         return {
             'video_url': video_url,
-            'title': video.get('title', ''),
-            'name': video.get('name', ''),
+            'title': title_value,
+            'name': name_value,
             'download_path': download_path,
-            'folder_size': str(video.get('folder_size', 0) or 0),
+            'folder_size': self._format_folder_size_value(folder_size_value),
             'downloaded': downloaded_flag,
             'avid': avid_str,
             'cid': str(cid_value),
@@ -78,26 +114,117 @@ class CSVManager:
             'total_parts': str(video.get('total_parts', 1))
         }
     
-    def _normalize_download_path(self, path_value: Any) -> str:
-        """将路径统一转换为任务目录中的相对路径"""
+    def _format_download_path(self, path_value: Any) -> str:
+        """保证下载路径以绝对路径形式存储"""
         if isinstance(path_value, Path):
             path_obj = path_value
         elif path_value:
-            path_obj = Path(str(path_value))
+            path_str = str(path_value).strip()
+            if not path_str:
+                # 空字符串，使用task_dir
+                path_obj = self.task_dir
+            else:
+                path_obj = Path(path_str)
         else:
-            path_obj = Path(self.task_dir.name)
+            # 如果path_value为空，使用task_dir作为基础路径
+            path_obj = self.task_dir
         
-        if path_obj.is_absolute():
-            parts = [part for part in path_obj.parts if part]
-            for idx, part in enumerate(parts):
-                if any(part.startswith(prefix) for prefix in TASK_FOLDER_PREFIXES):
-                    relative = Path(part)
-                    for sub in parts[idx + 1:]:
-                        relative /= sub
-                    return relative.as_posix()
-            return path_obj.name
+        # 确保路径是绝对路径
+        if not path_obj.is_absolute():
+            # 如果是相对路径，将其转换为相对于task_dir的绝对路径
+            # 先尝试直接拼接，如果失败则使用resolve
+            try:
+                path_obj = (self.task_dir / path_obj).resolve()
+            except (OSError, ValueError):
+                # 如果resolve失败，至少确保是相对于task_dir的绝对路径
+                path_obj = self.task_dir / path_obj
+                path_obj = path_obj.resolve()
+        else:
+            # 如果已经是绝对路径，确保它是解析后的路径
+            try:
+                path_obj = path_obj.resolve()
+            except (OSError, ValueError):
+                # 如果resolve失败，保持原路径
+                pass
         
+        # 返回绝对路径的字符串表示（使用正斜杠）
         return path_obj.as_posix()
+    
+    @staticmethod
+    def _format_folder_size_value(size_bytes: int) -> str:
+        """将字节大小转为人类可读格式（智能选择合适的单位）"""
+        if size_bytes <= 0:
+            return "0 B"
+        
+        units = ["B", "KB", "MB", "GB", "TB"]
+        import math
+        
+        # 计算应该使用的单位索引
+        if size_bytes < 1024:
+            # 小于1KB，使用B
+            return f"{size_bytes} B"
+        else:
+            # 计算单位索引（使用对数避免循环）
+            idx = min(int(math.floor(math.log(size_bytes, 1024))), len(units) - 1)
+            value = size_bytes / (1024 ** idx)
+            # 根据大小选择合适的精度
+            if idx == 0:  # B
+                return f"{int(value)} {units[idx]}"
+            elif idx == 1:  # KB
+                return f"{value:.2f} {units[idx]}"
+            elif idx == 2:  # MB
+                return f"{value:.2f} {units[idx]}"
+            elif idx == 3:  # GB
+                return f"{value:.2f} {units[idx]}"
+            else:  # TB
+                return f"{value:.2f} {units[idx]}"
+    
+    @staticmethod
+    def parse_folder_size_value(size_value: str) -> int:
+        """将带单位的大小字符串还原为字节"""
+        if not size_value:
+            return 0
+        text = size_value.strip().upper().replace('字节', 'B')
+        try:
+            # 纯数字
+            return int(float(text))
+        except ValueError:
+            pass
+        units = {
+            'B': 1,
+            'KB': 1024,
+            'MB': 1024 ** 2,
+            'GB': 1024 ** 3,
+            'TB': 1024 ** 4,
+        }
+        for unit, factor in units.items():
+            if text.endswith(unit):
+                try:
+                    number_part = text[:-len(unit)].strip()
+                    return int(float(number_part) * factor)
+                except ValueError:
+                    return 0
+        return 0
+    
+    def _normalize_csv_row_for_write(self, row: Dict[str, str]) -> Dict[str, str]:
+        """确保写入CSV的数据格式统一"""
+        normalized = row.copy()
+        normalized['download_path'] = self._format_download_path(normalized.get('download_path', ''))
+        size_value = self.parse_folder_size_value(normalized.get('folder_size', '0'))
+        normalized['folder_size'] = self._format_folder_size_value(size_value)
+        
+        title_raw = str(normalized.get('title', '')).strip()
+        name_raw = str(normalized.get('name', '')).strip()
+        if not title_raw:
+            path_candidate = Path(normalized['download_path'])
+            title_raw = name_raw or path_candidate.name or "未命名视频"
+        normalized['title'] = title_raw
+        if not name_raw:
+            normalized['name'] = title_raw
+        else:
+            normalized['name'] = name_raw
+        
+        return normalized
     
     def _detect_csv_encoding(self, file_path: Path) -> str:
         """智能检测CSV文件编码"""
@@ -195,16 +322,11 @@ class CSVManager:
             new_csv_path = self.task_dir / new_csv_filename
             temp_path = self.task_dir / f"temp_{new_csv_filename}"
             
-            # 合并视频列表
             merged_videos = []
-            
-            # 处理新视频列表
             for video in new_videos:
                 video_url, _ = self._get_video_url_and_identifier(video)
-                
                 if video_url in existing_video_map:
-                    # 已存在的视频，保持原有下载状态
-                    existing_data = existing_video_map[video_url]
+                    existing_data = self._normalize_csv_row_for_write(existing_video_map[video_url])
                     merged_videos.append(existing_data)
                 else:
                     merged_videos.append(self._video_to_csv_row(video))
@@ -280,6 +402,7 @@ class CSVManager:
                 
                 row_count = 0
                 error_rows = 0
+                missing_title_count = 0
                 
                 for row_num, row in enumerate(reader, start=2):  # 从第2行开始计数（考虑标题行）
                     try:
@@ -292,8 +415,14 @@ class CSVManager:
                             continue
                         
                         if not row.get('title', '').strip():
-                            Logger.warning(f"第{row_num}行：title为空，使用默认值")
-                            row['title'] = f"未知标题_{row_count}"
+                            fallback_source = row.get('name', '') or row.get('download_path', '')
+                            if fallback_source:
+                                fallback_title = Path(str(fallback_source)).name or f"未命名视频_{row_count}"
+                            else:
+                                fallback_title = f"未命名视频_{row_count}"
+                            row['title'] = fallback_title
+                            missing_title_count += 1
+                            # 不再输出每行的详细日志，只在汇总时输出一次，避免大量重复日志
                         
                         # 确保所有必需字段都存在，为缺失字段设置默认值
                         row.setdefault('is_multi_part', 'False')
@@ -307,6 +436,10 @@ class CSVManager:
                         row.setdefault('cid', '')
                         row.setdefault('pubdate', '')
                         
+                        row['download_path'] = self._format_download_path(row['download_path'])
+                        folder_size_bytes = self.parse_folder_size_value(row['folder_size'])
+                        row['folder_size'] = self._format_folder_size_value(folder_size_bytes)
+                        
                         # 验证和修复数据格式
                         self._validate_and_fix_row_data(row, row_num)
                         
@@ -317,6 +450,8 @@ class CSVManager:
                         Logger.warning(f"第{row_num}行数据处理失败，跳过: {e}")
                         continue
                 
+                if missing_title_count > 0:
+                    Logger.info(f"CSV文件中有 {missing_title_count} 行缺少标题，已自动填充")
                 if error_rows > 0:
                     Logger.warning(f"CSV文件中有 {error_rows} 行数据存在问题")
                 
@@ -382,14 +517,11 @@ class CSVManager:
             row['total_parts'] = '1'
         
         folder_size = row.get('folder_size', '0')
-        try:
-            size_value = int(folder_size)
-            if size_value < 0:
-                Logger.warning(f"第{row_num}行：folder_size为负数，设置为0")
-                row['folder_size'] = '0'
-        except (ValueError, TypeError):
-            Logger.warning(f"第{row_num}行：folder_size不是数字 '{folder_size}'，设置为0")
-            row['folder_size'] = '0'
+        size_value = self.parse_folder_size_value(folder_size)
+        if size_value < 0:
+            Logger.warning(f"第{row_num}行：folder_size为负数，设置为0")
+            size_value = 0
+        row['folder_size'] = self._format_folder_size_value(size_value)
     
     def get_pending_videos(self) -> Optional[List[Dict[str, str]]]:
         """获取未下载的视频列表"""
@@ -432,17 +564,17 @@ class CSVManager:
                 
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # 确保所有必需字段都存在，为缺失字段设置默认值
                     row.setdefault('is_multi_part', 'False')
                     row.setdefault('total_parts', '1')
                     row.setdefault('status', 'normal')
                     row.setdefault('folder_size', '0')
+                    normalized_row = self._normalize_csv_row_for_write(row)
                     
-                    if row['video_url'] == video_url:
-                        row['downloaded'] = 'True'
+                    if normalized_row['video_url'] == video_url:
+                        normalized_row['downloaded'] = 'True'
                         if folder_size is not None:
-                            row['folder_size'] = str(folder_size)
-                    videos.append(row)
+                            normalized_row['folder_size'] = self._format_folder_size_value(folder_size)
+                    videos.append(normalized_row)
             
             # 生成新的CSV文件名
             new_csv_filename = self._generate_csv_filename()
@@ -563,19 +695,22 @@ class CSVManager:
                 
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # 确保所有必需字段都存在，为缺失字段设置默认值
                     row.setdefault('is_multi_part', 'False')
                     row.setdefault('total_parts', '1')
                     row.setdefault('status', 'normal')
                     row.setdefault('folder_size', '0')
                     
-                    if row['video_url'] == video_url:
-                        # 更新视频信息
+                    normalized_row = self._normalize_csv_row_for_write(row)
+                    if normalized_row['video_url'] == video_url:
                         updated_copy = updated_info.copy()
                         if 'download_path' in updated_copy:
-                            updated_copy['download_path'] = self._normalize_download_path(updated_copy['download_path'])
-                        row.update(updated_copy)
-                    videos.append(row)
+                            updated_copy['download_path'] = self._format_download_path(updated_copy['download_path'])
+                        if 'folder_size' in updated_copy:
+                            size_bytes = self.parse_folder_size_value(str(updated_copy['folder_size']))
+                            updated_copy['folder_size'] = self._format_folder_size_value(size_bytes)
+                        normalized_row.update(updated_copy)
+                        normalized_row = self._normalize_csv_row_for_write(normalized_row)
+                    videos.append(normalized_row)
             
             # 生成新的CSV文件名
             new_csv_filename = self._generate_csv_filename()

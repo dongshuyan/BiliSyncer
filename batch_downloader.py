@@ -1430,15 +1430,15 @@ class BatchDownloader:
             return 0
         return self._get_directory_size(folder_path)
     
+    def _parse_folder_size_value(self, value: str) -> int:
+        """解析CSV中的folder_size字符串"""
+        return CSVManager.parse_folder_size_value(value)
+    
     def _csv_to_video_info(self, csv_data: Dict[str, str]) -> VideoInfo:
         """将CSV数据转换为VideoInfo"""
         video_url = csv_data['video_url']
         video_path = self._build_video_path_from_csv(csv_data.get('download_path', ''))
-        folder_size_str = csv_data.get('folder_size', '0')
-        try:
-            folder_size = int(folder_size_str)
-        except (ValueError, TypeError):
-            folder_size = 0
+        folder_size = self._parse_folder_size_value(csv_data.get('folder_size', '0'))
         
         # 处理不同类型的视频
         if 'bangumi/play/ep' in video_url or 'cheese/play/ep' in video_url:
