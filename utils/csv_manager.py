@@ -8,10 +8,11 @@ import glob
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any
 
 from utils.types import VideoInfo
 from utils.logger import Logger
+from utils.constants import TASK_FOLDER_PREFIXES
 
 
 class CSVManager:
@@ -24,6 +25,79 @@ class CSVManager:
         """
         self.task_dir = task_dir
         self.task_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _get_video_url_and_identifier(self, video: VideoInfo) -> Tuple[str, str]:
+        """根据VideoInfo生成统一的video_url和标识"""
+        episode_id = video.get('episode_id')
+        video_path = str(video.get('path', ''))
+        main_folder = video_path.split("/")[0] if video_path else ""
+        
+        if episode_id:
+            if main_folder.startswith('课程-'):
+                video_url = f"https://www.bilibili.com/cheese/play/ep{episode_id}"
+            else:
+                video_url = f"https://www.bilibili.com/bangumi/play/ep{episode_id}"
+            avid_str = episode_id
+        else:
+            video_url = video['avid'].to_url()
+            avid_str = str(video['avid'])
+        
+        return video_url, avid_str
+    
+    def _video_to_csv_row(self, video: VideoInfo, downloaded_override: Optional[str] = None) -> Dict[str, str]:
+        """将VideoInfo转换成标准CSV行"""
+        video_url, avid_str = self._get_video_url_and_identifier(video)
+        
+        pubdate_unix = video.get('pubdate', 0)
+        if pubdate_unix:
+            pubdate_str = datetime.fromtimestamp(pubdate_unix).strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            pubdate_str = "未知"
+        
+        cid_value = video.get('cid', '')
+        if str(cid_value) == "0":
+            cid_value = ""
+        
+        download_path = self._normalize_download_path(video.get('path'))
+        
+        is_unavailable = video.get('status') == 'unavailable'
+        downloaded_flag = downloaded_override if downloaded_override is not None else ('True' if is_unavailable else 'False')
+        
+        return {
+            'video_url': video_url,
+            'title': video.get('title', ''),
+            'name': video.get('name', ''),
+            'download_path': download_path,
+            'folder_size': str(video.get('folder_size', 0) or 0),
+            'downloaded': downloaded_flag,
+            'avid': avid_str,
+            'cid': str(cid_value),
+            'pubdate': pubdate_str,
+            'status': video.get('status', 'normal'),
+            'is_multi_part': str(video.get('is_multi_part', False)),
+            'total_parts': str(video.get('total_parts', 1))
+        }
+    
+    def _normalize_download_path(self, path_value: Any) -> str:
+        """将路径统一转换为任务目录中的相对路径"""
+        if isinstance(path_value, Path):
+            path_obj = path_value
+        elif path_value:
+            path_obj = Path(str(path_value))
+        else:
+            path_obj = Path(self.task_dir.name)
+        
+        if path_obj.is_absolute():
+            parts = [part for part in path_obj.parts if part]
+            for idx, part in enumerate(parts):
+                if any(part.startswith(prefix) for prefix in TASK_FOLDER_PREFIXES):
+                    relative = Path(part)
+                    for sub in parts[idx + 1:]:
+                        relative /= sub
+                    return relative.as_posix()
+            return path_obj.name
+        
+        return path_obj.as_posix()
     
     def _detect_csv_encoding(self, file_path: Path) -> str:
         """智能检测CSV文件编码"""
@@ -78,56 +152,14 @@ class CSVManager:
                     f.write(f"# Original URL: {original_url}\n")
                 
                 writer = csv.DictWriter(f, fieldnames=[
-                    'video_url', 'title', 'name', 'download_path', 
+                    'video_url', 'title', 'name', 'download_path', 'folder_size',
                     'downloaded', 'avid', 'cid', 'pubdate', 'status',
                     'is_multi_part', 'total_parts'
                 ])
                 writer.writeheader()
                 
                 for video in videos:
-                    # 将Unix时间戳转换为可读格式
-                    pubdate_unix = video.get('pubdate', 0)
-                    if pubdate_unix:
-                        pubdate_str = datetime.fromtimestamp(pubdate_unix).strftime('%Y-%m-%d %H:%M:%S')
-                    else:
-                        pubdate_str = "未知"
-                    
-                    # 处理cid字段 - 如果是占位符则保存为空
-                    cid_value = video.get('cid', '')
-                    if str(cid_value) == "0":
-                        cid_value = ""
-                    
-                    # 处理video_url - 番剧/课程视频使用标准B站URL格式
-                    if "episode_id" in video:
-                        # 根据视频路径判断是课程还是番剧
-                        video_path = str(video.get('path', ''))
-                        if video_path.startswith('课程-') or '课程-' in video_path:
-                            # 课程视频使用cheese URL格式
-                            video_url = f"https://www.bilibili.com/cheese/play/ep{video['episode_id']}"
-                        else:
-                            # 番剧视频使用bangumi URL格式
-                            video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
-                        avid_str = video.get('episode_id', '')
-                    else:
-                        # 普通视频使用avid
-                        video_url = video['avid'].to_url()
-                        avid_str = str(video['avid'])
-                    
-                    # 对于不可访问的视频，直接标记为已下载
-                    is_unavailable = video.get('status') == 'unavailable'
-                    writer.writerow({
-                        'video_url': video_url,
-                        'title': video['title'],
-                        'name': video['name'],
-                        'download_path': str(Path(video['path']).resolve()),
-                        'downloaded': 'True' if is_unavailable else 'False',
-                        'avid': avid_str,
-                        'cid': str(cid_value),
-                        'pubdate': pubdate_str,
-                        'status': video.get('status', 'normal'),
-                        'is_multi_part': str(video.get('is_multi_part', False)),
-                        'total_parts': str(video.get('total_parts', 1))
-                    })
+                    writer.writerow(self._video_to_csv_row(video))
             
             # 验证临时文件写入成功后，移动到正式位置
             shutil.move(str(temp_path), str(csv_path))
@@ -168,60 +200,18 @@ class CSVManager:
             
             # 处理新视频列表
             for video in new_videos:
-                video_url = video['avid'].to_url()
+                video_url, _ = self._get_video_url_and_identifier(video)
                 
                 if video_url in existing_video_map:
                     # 已存在的视频，保持原有下载状态
                     existing_data = existing_video_map[video_url]
                     merged_videos.append(existing_data)
                 else:
-                    # 新增的视频，设置为未下载
-                    pubdate_unix = video.get('pubdate', 0)
-                    if pubdate_unix:
-                        pubdate_str = datetime.fromtimestamp(pubdate_unix).strftime('%Y-%m-%d %H:%M:%S')
-                    else:
-                        pubdate_str = "未知"
-                    
-                    # 处理cid字段 - 如果是占位符则保存为空
-                    cid_value = video.get('cid', '')
-                    if str(cid_value) == "0":
-                        cid_value = ""
-                    
-                    # 处理video_url - 番剧/课程视频使用标准B站URL格式
-                    if "episode_id" in video:
-                        # 根据视频路径判断是课程还是番剧
-                        video_path = str(video.get('path', ''))
-                        if video_path.startswith('课程-') or '课程-' in video_path:
-                            # 课程视频使用cheese URL格式
-                            video_url = f"https://www.bilibili.com/cheese/play/ep{video['episode_id']}"
-                        else:
-                            # 番剧视频使用bangumi URL格式
-                            video_url = f"https://www.bilibili.com/bangumi/play/ep{video['episode_id']}"
-                        avid_str = video.get('episode_id', '')
-                    else:
-                        # 普通视频使用avid
-                        video_url = video['avid'].to_url()
-                        avid_str = str(video['avid'])
-                    
-                    # 对于不可访问的视频，直接标记为已下载
-                    is_unavailable = video.get('status') == 'unavailable'
-                    merged_videos.append({
-                        'video_url': video_url,
-                        'title': video['title'],
-                        'name': video['name'],
-                        'download_path': str(Path(video['path']).resolve()),
-                        'downloaded': 'True' if is_unavailable else 'False',
-                        'avid': avid_str,
-                        'cid': str(cid_value),
-                        'pubdate': pubdate_str,
-                        'status': video.get('status', 'normal'),
-                        'is_multi_part': str(video.get('is_multi_part', False)),
-                        'total_parts': str(video.get('total_parts', 1))
-                    })
+                    merged_videos.append(self._video_to_csv_row(video))
             
             # 定义统一的字段列表
             fieldnames = [
-                'video_url', 'title', 'name', 'download_path', 
+                'video_url', 'title', 'name', 'download_path', 'folder_size',
                 'downloaded', 'avid', 'cid', 'pubdate', 'status',
                 'is_multi_part', 'total_parts'
             ]
@@ -312,6 +302,7 @@ class CSVManager:
                         row.setdefault('downloaded', 'False')
                         row.setdefault('name', row.get('title', ''))
                         row.setdefault('download_path', '')
+                        row.setdefault('folder_size', '0')
                         row.setdefault('avid', '')
                         row.setdefault('cid', '')
                         row.setdefault('pubdate', '')
@@ -389,6 +380,16 @@ class CSVManager:
         except ValueError:
             Logger.warning(f"第{row_num}行：total_parts不是数字 '{total_parts}'，设置为1")
             row['total_parts'] = '1'
+        
+        folder_size = row.get('folder_size', '0')
+        try:
+            size_value = int(folder_size)
+            if size_value < 0:
+                Logger.warning(f"第{row_num}行：folder_size为负数，设置为0")
+                row['folder_size'] = '0'
+        except (ValueError, TypeError):
+            Logger.warning(f"第{row_num}行：folder_size不是数字 '{folder_size}'，设置为0")
+            row['folder_size'] = '0'
     
     def get_pending_videos(self) -> Optional[List[Dict[str, str]]]:
         """获取未下载的视频列表"""
@@ -405,7 +406,7 @@ class CSVManager:
         
         return pending_videos
     
-    def mark_video_downloaded(self, video_url: str) -> None:
+    def mark_video_downloaded(self, video_url: str, folder_size: Optional[int] = None) -> None:
         """标记视频为已下载并更新CSV文件"""
         current_csv = self._find_latest_csv()
         
@@ -435,9 +436,12 @@ class CSVManager:
                     row.setdefault('is_multi_part', 'False')
                     row.setdefault('total_parts', '1')
                     row.setdefault('status', 'normal')
+                    row.setdefault('folder_size', '0')
                     
                     if row['video_url'] == video_url:
                         row['downloaded'] = 'True'
+                        if folder_size is not None:
+                            row['folder_size'] = str(folder_size)
                     videos.append(row)
             
             # 生成新的CSV文件名
@@ -447,7 +451,7 @@ class CSVManager:
             
             # 定义统一的字段列表
             fieldnames = [
-                'video_url', 'title', 'name', 'download_path', 
+                'video_url', 'title', 'name', 'download_path', 'folder_size',
                 'downloaded', 'avid', 'cid', 'pubdate', 'status',
                 'is_multi_part', 'total_parts'
             ]
@@ -563,10 +567,14 @@ class CSVManager:
                     row.setdefault('is_multi_part', 'False')
                     row.setdefault('total_parts', '1')
                     row.setdefault('status', 'normal')
+                    row.setdefault('folder_size', '0')
                     
                     if row['video_url'] == video_url:
                         # 更新视频信息
-                        row.update(updated_info)
+                        updated_copy = updated_info.copy()
+                        if 'download_path' in updated_copy:
+                            updated_copy['download_path'] = self._normalize_download_path(updated_copy['download_path'])
+                        row.update(updated_copy)
                     videos.append(row)
             
             # 生成新的CSV文件名
@@ -576,7 +584,7 @@ class CSVManager:
             
             # 定义统一的字段列表
             fieldnames = [
-                'video_url', 'title', 'name', 'download_path', 
+                'video_url', 'title', 'name', 'download_path', 'folder_size',
                 'downloaded', 'avid', 'cid', 'pubdate', 'status',
                 'is_multi_part', 'total_parts'
             ]

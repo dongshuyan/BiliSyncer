@@ -7,6 +7,7 @@ import sys
 import os
 import socket
 import random
+import argparse
 import webbrowser
 import threading
 import time
@@ -34,12 +35,25 @@ def find_available_port(start_port=15000, max_port=65535):
     
     raise RuntimeError("无法找到可用端口")
 
+def is_port_available(port: int) -> bool:
+    """检测指定端口是否可用"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(('localhost', port))
+            return True
+        except OSError:
+            return False
+
 def open_browser(url, delay=2):
     """延迟打开浏览器"""
     time.sleep(delay)
     webbrowser.open(url)
 
 def main():
+    parser = argparse.ArgumentParser(description="启动 BiliSyncer WebUI")
+    parser.add_argument("-p", "--port", type=int, help="指定 WebUI 使用的端口号")
+    args = parser.parse_args()
+    
     # 检查依赖
     try:
         import flask
@@ -55,11 +69,20 @@ def main():
     os.chdir(script_dir)
     
     # 查找可用端口
-    try:
-        port = find_available_port()
-    except RuntimeError as e:
-        print(f"❌ {e}")
-        sys.exit(1)
+    if args.port:
+        if not (1 <= args.port <= 65535):
+            print(f"❌ 端口 {args.port} 无效，请使用 1~65535")
+            sys.exit(1)
+        if not is_port_available(args.port):
+            print(f"❌ 端口 {args.port} 已被占用，请选择其他端口")
+            sys.exit(1)
+        port = args.port
+    else:
+        try:
+            port = find_available_port()
+        except RuntimeError as e:
+            print(f"❌ {e}")
+            sys.exit(1)
     
     # 启动WebUI
     from webui.app import app, socketio

@@ -16,6 +16,7 @@ from utils.types import VideoListData, VideoInfo, DownloadOptions, AId, BvId, CI
 from utils.fetcher import Fetcher
 from utils.logger import Logger
 from utils.csv_manager import CSVManager
+from utils.constants import TASK_FOLDER_PREFIXES
 from utils.anti_risk_manager import get_anti_risk_manager
 from extractors import extract_video_list, extract_video_list_incremental
 from api.bilibili import (
@@ -125,7 +126,7 @@ class BatchDownloader:
                         
                         # 对比CSV中的视频和当前获取的视频
                         csv_video_urls = {video['video_url'] for video in existing_csv_videos}
-                        current_video_urls = {video['avid'].to_url() for video in current_videos}
+                        current_video_urls = {self._get_video_url(video) for video in current_videos}
                         
                         new_video_urls = current_video_urls - csv_video_urls
                         
@@ -135,7 +136,7 @@ class BatchDownloader:
                             update_url = self.original_url or url
                             self.csv_manager.update_video_list(current_videos, update_url)
                             # 只下载新增的视频
-                            videos_to_download = [v for v in current_videos if v['avid'].to_url() in new_video_urls]
+                            videos_to_download = [v for v in current_videos if self._get_video_url(v) in new_video_urls]
                         else:
                             # 步骤6.1.3: 没有新增视频，任务完成
                             Logger.info("没有发现新增视频，所有任务已完成！")
@@ -677,7 +678,7 @@ class BatchDownloader:
             if existing_videos:
                 # 对比CSV中的视频和当前获取的视频
                 csv_video_urls = {video['video_url'] for video in existing_videos}
-                current_video_urls = {video['avid'].to_url() for video in new_videos}
+                current_video_urls = {self._get_video_url(video) for video in new_videos}
                 
                 new_video_urls = current_video_urls - csv_video_urls
                 
@@ -759,19 +760,8 @@ class BatchDownloader:
         # 6. UP主-UP主UID-UP主名
         # 7. 稍后再看-watchlater-稍后再看
         # 8. 课程-课程编号-课程名
-        valid_prefixes = [
-            '投稿视频-', 
-            '番剧-', 
-            '收藏夹-', 
-            '视频列表-',
-            '视频合集-',
-            'UP主-',
-            '稍后再看-',
-            '课程-'
-        ]
-        
         # 检查是否以有效前缀开头
-        has_valid_prefix = any(dir_name.startswith(prefix) for prefix in valid_prefixes)
+        has_valid_prefix = any(dir_name.startswith(prefix) for prefix in TASK_FOLDER_PREFIXES)
         if not has_valid_prefix:
             return False
         
@@ -808,7 +798,7 @@ class BatchDownloader:
                     # 直接标记为已下载，避免重复尝试
                     video_url = self._get_video_url(video)
                     if self.csv_manager:
-                        self.csv_manager.mark_video_downloaded(video_url)
+                        self.csv_manager.mark_video_downloaded(video_url, folder_size=0)
                     Logger.info(f"[{i}/{len(videos)}] 已标记不可访问视频为已处理: {video['name']}")
                     # 更新进度
                     self._update_progress()
@@ -832,8 +822,9 @@ class BatchDownloader:
                     # 只有下载成功或应该跳过的情况才标记为已下载
                     video_url = self._get_video_url(video)
                     if self.csv_manager:
-                        self.csv_manager.mark_video_downloaded(video_url)
-                        
+                        folder_size = self._calculate_video_folder_size(video)
+                        self.csv_manager.mark_video_downloaded(video_url, folder_size=folder_size)
+                    
                     Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']}")
                 else:
                     Logger.error(f"[{i}/{len(videos)}] 下载失败，不标记为已完成: {video['name']}")
@@ -868,7 +859,7 @@ class BatchDownloader:
         """获取视频URL"""
         if "episode_id" in video:
             # 根据视频路径判断是番剧还是课程
-            main_folder = str(video["path"]).split("/")[0]
+            main_folder = self._extract_main_folder(video)
             if main_folder.startswith("课程-"):
                 # 课程视频使用课程URL格式
                 return f"https://www.bilibili.com/cheese/play/ep{video['episode_id']}"
@@ -891,7 +882,7 @@ class BatchDownloader:
                 episode_id = video.get("episode_id")
                 if episode_id:
                     # 获取主文件夹名（保持原来的类型-编号-名称格式）
-                    main_folder = str(video["path"]).split("/")[0]
+                    main_folder = self._extract_main_folder(video)
                     
                     # 根据主文件夹类型判断是番剧还是课程
                     if main_folder.startswith("番剧-"):
@@ -957,7 +948,7 @@ class BatchDownloader:
                         detailed_video = detailed_video_data["videos"][0]
                         
                         # 获取主文件夹名（保持原来的类型-ID-名称格式）
-                        main_folder = str(video["path"]).split("/")[0]
+                        main_folder = self._extract_main_folder(video)
                         
                         # 生成单个视频的文件夹名：视频号-标题
                         video_folder_name = f"{avid}-{detailed_video['title']}"
@@ -991,13 +982,13 @@ class BatchDownloader:
             Logger.error(f"获取视频 {avid} 详细信息失败: {e}")
             
             # 检查是否为永久性错误
-            permanent_errors = ["稿件不可见", "视频不存在", "已删除", "不可访问", "权限不足"]
+            permanent_errors = ["稿件不可见", "视频不存在", "已删除", "权限不足"]
             if any(keyword in error_msg for keyword in permanent_errors):
                 Logger.warning(f"视频 {avid} 不可访问，标记为已处理")
                 video["status"] = "unavailable"
                 video_url = self._get_video_url(video)
                 if self.csv_manager:
-                    self.csv_manager.mark_video_downloaded(video_url)
+                    self.csv_manager.mark_video_downloaded(video_url, folder_size=0)
             else:
                 Logger.warning(f"视频 {avid} 获取失败，跳过此次下载")
                 raise  # 重新抛出异常，让上层处理
@@ -1008,11 +999,7 @@ class BatchDownloader:
             return
             
         # 获取最终的视频文件夹名（即视频号-标题格式）
-        video_path = video.get('path', Path(f"{video['avid']}"))
-        if isinstance(video_path, str):
-            video_path = Path(video_path)
-            
-        final_video_folder_name = video_path.name
+        final_video_folder_name = self._get_final_video_folder_name(video)
         task_dir = self.csv_manager.task_dir
         
         # 完整的视频文件夹路径
@@ -1198,7 +1185,7 @@ class BatchDownloader:
         video_path = video.get('path', Path(f"{avid}"))
         if isinstance(video_path, str):
             video_path = Path(video_path)
-        main_folder = str(video_path).split("/")[0]
+        main_folder = self._extract_main_folder(video)
         
         # 课程和多P视频都需要使用批量下载模式
         if main_folder.startswith("课程-") or video.get('is_multi_part', False):
@@ -1337,7 +1324,6 @@ class BatchDownloader:
             "视频不存在",
             "稿件不可见",
             "已删除",
-            "无法访问",
             "权限不足",
             "需要付费",
             "会员专享",  # 仅当不是配置错误时才跳过
@@ -1360,6 +1346,7 @@ class BatchDownloader:
             "connection reset",
             "timeout",
             "temporary failure",
+            "无法访问",
             "无法连接",
             "网络不可达",
             "服务器错误",
@@ -1377,9 +1364,81 @@ class BatchDownloader:
         Logger.warning(f"未识别的失败类型，返回码: {return_code}")
         return "failure"
     
+    def _extract_main_folder(self, video: VideoInfo) -> str:
+        """提取视频所属的主目录名称"""
+        raw_path = video.get("path", "")
+        if isinstance(raw_path, Path):
+            raw_str = raw_path.as_posix()
+        else:
+            raw_str = str(raw_path or "")
+        
+        if raw_str:
+            parts = [part for part in raw_str.replace("\\", "/").split("/") if part]
+            for part in parts:
+                if any(part.startswith(prefix) for prefix in TASK_FOLDER_PREFIXES):
+                    return part
+            if parts:
+                return parts[0]
+        
+        if self.csv_manager:
+            return self.csv_manager.task_dir.name
+        return ""
+    
+    def _build_video_path_from_csv(self, stored_path: str) -> Path:
+        """根据CSV中的路径字段还原任务内相对路径"""
+        if not stored_path:
+            if self.csv_manager:
+                return Path(self.csv_manager.task_dir.name)
+            return Path("未命名任务")
+        
+        path_obj = Path(stored_path)
+        if path_obj.is_absolute():
+            parts = [part for part in path_obj.parts if part]
+            for idx, part in enumerate(parts):
+                if any(part.startswith(prefix) for prefix in TASK_FOLDER_PREFIXES):
+                    relative = Path(part)
+                    for sub in parts[idx + 1:]:
+                        relative /= sub
+                    return relative
+            if self.csv_manager:
+                return Path(self.csv_manager.task_dir.name) / path_obj.name
+            return Path(path_obj.name)
+        
+        return path_obj
+    
+    def _get_final_video_folder_name(self, video: VideoInfo) -> str:
+        """获取最终视频文件夹名称"""
+        video_path = video.get('path', Path(f"{video.get('avid', 'video')}"))
+        if isinstance(video_path, str):
+            video_path = Path(video_path)
+        final_name = video_path.name
+        if not final_name:
+            final_name = str(video.get('avid', 'video'))
+        return final_name
+    
+    def _get_video_folder_path(self, video: VideoInfo) -> Optional[Path]:
+        """获取视频对应的目录路径"""
+        if not self.csv_manager:
+            return None
+        final_name = self._get_final_video_folder_name(video)
+        return self.csv_manager.task_dir / final_name
+    
+    def _calculate_video_folder_size(self, video: VideoInfo) -> int:
+        """计算视频文件夹大小"""
+        folder_path = self._get_video_folder_path(video)
+        if not folder_path or not folder_path.exists():
+            return 0
+        return self._get_directory_size(folder_path)
+    
     def _csv_to_video_info(self, csv_data: Dict[str, str]) -> VideoInfo:
         """将CSV数据转换为VideoInfo"""
         video_url = csv_data['video_url']
+        video_path = self._build_video_path_from_csv(csv_data.get('download_path', ''))
+        folder_size_str = csv_data.get('folder_size', '0')
+        try:
+            folder_size = int(folder_size_str)
+        except (ValueError, TypeError):
+            folder_size = 0
         
         # 处理不同类型的视频
         if 'bangumi/play/ep' in video_url or 'cheese/play/ep' in video_url:
@@ -1397,12 +1456,13 @@ class BatchDownloader:
                 'title': csv_data['title'],
                 'avid': BvId("BV1"),  # 占位符，下载时会更新
                 'cid': CId(csv_data['cid']),
-                'path': Path(csv_data['download_path']),
+                'path': video_path,
                 'pubdate': 0,  # 番剧和课程没有pubdate
                 'status': csv_data.get('status', 'pending'),
                 'episode_id': episode_id,  # 保存episode_id用于获取详细信息
                 'is_multi_part': csv_data.get('is_multi_part', 'False') == 'True',  # 从CSV读取多P标记
-                'total_parts': int(csv_data.get('total_parts', '1'))  # 从CSV读取总分P数量
+                'total_parts': int(csv_data.get('total_parts', '1')),  # 从CSV读取总分P数量
+                'folder_size': folder_size
             }
         else:
             # 普通投稿视频
@@ -1435,11 +1495,12 @@ class BatchDownloader:
                 'title': csv_data['title'],
                 'avid': avid,
                 'cid': CId(csv_data['cid']),
-                'path': Path(csv_data['download_path']),
+                'path': video_path,
                 'pubdate': pubdate,
                 'status': csv_data.get('status', 'pending'),
                 'is_multi_part': csv_data.get('is_multi_part', 'False') == 'True',  # 从CSV读取多P标记
-                'total_parts': int(csv_data.get('total_parts', '1'))  # 从CSV读取总分P数量
+                'total_parts': int(csv_data.get('total_parts', '1')),  # 从CSV读取总分P数量
+                'folder_size': folder_size
             }
         
         return video_info  # type: ignore 

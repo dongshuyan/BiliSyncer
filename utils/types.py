@@ -114,6 +114,7 @@ class VideoInfo(TypedDict):
     duration: Optional[int]  # 时长
     is_multi_part: Optional[bool]  # 是否为多P视频
     total_parts: Optional[int]  # 总分P数量
+    folder_size: Optional[int]  # 已下载文件夹占用（字节）
 
 
 class VideoListData(TypedDict):
