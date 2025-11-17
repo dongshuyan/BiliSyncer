@@ -142,6 +142,48 @@ extra_args: ["--quality", "8K"]
 
 **Getting SESSDATA**: Login to bilibili.com → F12 → Application → Cookies → Copy `SESSDATA` value
 
+## 🛠️ Utility Tools
+
+### Directory Size Analysis Tool
+
+`tools/dir_tree_size.py` is a directory size analysis tool that displays directory structure in tree format and sorts by size.
+
+**Features**:
+- 📊 **Tree-style Display** - Shows directories and files in a tree structure
+- 📈 **Smart Sorting** - Sorts by size from smallest to largest for easy identification
+- 🔍 **Auto Check** - Automatically checks video file status in leaf directories (bottom-level directories)
+- 📝 **Issue Report** - Automatically generates check reports listing problematic directories
+
+**Usage**:
+```bash
+# Basic usage (automatically checks and generates report)
+python3 tools/dir_tree_size.py "/path/to/directory"
+
+# Skip checking, only show directory structure
+python3 tools/dir_tree_size.py "/path/to/directory" --no-check
+```
+
+**Check Features**:
+- ✅ **Missing mp4 Files** - Detects if leaf directories are missing `.mp4` files
+- ✅ **m4s Files Present** - Detects if `.m4s` files exist in leaf directories (usually incomplete downloads or fragmented files)
+
+**Report Generation**:
+- Check reports are automatically generated in the checked directory
+- Filename format: `directory_name_检查报告_timestamp.log`
+- Report includes: List of problematic directories, specific issue types, statistics
+
+**Example Output**:
+```
+/Volumes/Data-12T-mybook/多媒体资料/视频/Bilibili/ (1.23 TB)
+├── 番剧-33415-名侦探柯南（中配） (50.2 GB)
+│   ├── BV1xx411c7mD-第1集 (500 MB)
+│   └── BV1xx411c7mE-第2集 (480 MB)
+└── 收藏夹-123456-我的收藏 (30.5 GB)
+
+Report generated: /path/to/xxx_检查报告_20250116_123456.log
+Found 5 leaf directories with issues
+```
+
 ## 🎯 Perfect For
 
 - **Content Creators** - Continuously track and backup latest uploads from followed UP masters
