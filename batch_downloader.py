@@ -822,10 +822,21 @@ class BatchDownloader:
                     # 只有下载成功或应该跳过的情况才标记为已下载
                     video_url = self._get_video_url(video)
                     if self.csv_manager:
+                        # 计算文件夹大小
                         folder_size = self._calculate_video_folder_size(video)
+                        if folder_size == 0:
+                            # 如果大小为0，等待一下再重试（yutto可能在合并音视频）
+                            Logger.debug(f"文件夹大小为0，等待2秒后重试...")
+                            await asyncio.sleep(2.0)
+                            folder_size = self._calculate_video_folder_size(video)
+                        
                         self.csv_manager.mark_video_downloaded(video_url, folder_size=folder_size)
-                    
-                    Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']}")
+                        if folder_size > 0:
+                            Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']} (大小: {self._format_file_size(folder_size)})")
+                        else:
+                            Logger.warning(f"[{i}/{len(videos)}] 下载成功但文件夹大小为0: {video['name']}")
+                    else:
+                        Logger.info(f"[{i}/{len(videos)}] 下载成功: {video['name']}")
                 else:
                     Logger.error(f"[{i}/{len(videos)}] 下载失败，不标记为已完成: {video['name']}")
                 
@@ -1426,9 +1437,25 @@ class BatchDownloader:
     def _calculate_video_folder_size(self, video: VideoInfo) -> int:
         """计算视频文件夹大小"""
         folder_path = self._get_video_folder_path(video)
-        if not folder_path or not folder_path.exists():
+        if not folder_path:
+            Logger.warning(f"无法获取视频文件夹路径: {video.get('name', 'unknown')}")
             return 0
-        return self._get_directory_size(folder_path)
+        
+        if not folder_path.exists():
+            Logger.warning(f"视频文件夹不存在: {folder_path} (视频: {video.get('name', 'unknown')})")
+            # 尝试列出任务目录下的所有文件夹，帮助调试
+            if self.csv_manager and self.csv_manager.task_dir.exists():
+                try:
+                    all_dirs = [d.name for d in self.csv_manager.task_dir.iterdir() if d.is_dir()]
+                    Logger.debug(f"任务目录下的所有文件夹: {all_dirs[:10]}")  # 只显示前10个
+                except Exception:
+                    pass
+            return 0
+        
+        size = self._get_directory_size(folder_path)
+        Logger.debug(f"计算文件夹大小: {folder_path} = {size} 字节")
+        return size
+    
     
     def _parse_folder_size_value(self, value: str) -> int:
         """解析CSV中的folder_size字符串"""

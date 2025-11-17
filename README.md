@@ -184,6 +184,49 @@ Report generated: /path/to/xxx_检查报告_20250116_123456.log
 Found 5 leaf directories with issues
 ```
 
+### Directory Flattening Tool
+
+`flatten.py` is a directory flattening tool that flattens directory structures at a specified level, moving files from subdirectories to parent directories and removing empty subdirectories.
+
+**Features**:
+- 📁 **Level-based Flattening** - Flattens directory structures at specified depth levels
+- ⚡ **Multi-threaded Processing** - Supports parallel file moving with multiple threads for faster processing
+- 🔍 **Preview Mode** - Supports `--dry-run` mode to preview operations without actually executing them
+- 🗑️ **Hidden File Handling** - Option to delete or keep hidden files (files starting with `.`)
+- 🔒 **Safe Operation** - Automatically handles filename conflicts to prevent file overwriting
+
+**Usage**:
+```bash
+# Flatten level 1 directories (default: delete hidden files)
+python3 flatten.py "/path/to/directory" -n 1
+
+# Preview mode, don't actually execute operations
+python3 flatten.py "/path/to/directory" -n 1 --dry-run
+
+# Flatten level 2 directories, keep hidden files, 8 threads
+python3 flatten.py "/path/to/directory" -n 2 --keep-hidden --jobs 8
+
+# Flatten level 1, delete hidden files, 4 threads, preview mode
+python3 flatten.py "/path/to/directory" -n 1 --delete-hidden --jobs 4 --dry-run
+```
+
+**Parameters**:
+- `-n, --level` - Level to flatten (relative to root, root depth is 0), default 0
+- `-j, --jobs` - Maximum parallel threads, default 8
+- `--delete-hidden` - Delete all hidden files starting with `.` (default behavior)
+- `--keep-hidden` - Keep hidden files, don't delete
+- `--dry-run` - Preview mode, only print operations to be performed, don't actually move/delete files
+
+**Use Cases**:
+- 📦 **Simplify Directory Structure** - Flatten multi-level nested directory structures for easier management
+- 🎬 **Video File Organization** - Move downloaded video files from subdirectories to main directory
+- 🧹 **Clean Empty Directories** - Automatically remove empty subdirectories after flattening
+
+**Notes**:
+- Tool automatically skips hidden directories (starting with `.`) to protect system directories like `.git`
+- If files with the same name exist at destination, they will be automatically renamed to `name__dup1.ext`, `name__dup2.ext`, etc.
+- It's recommended to use `--dry-run` mode first to preview results before actual execution
+
 ## 🎯 Perfect For
 
 - **Content Creators** - Continuously track and backup latest uploads from followed UP masters

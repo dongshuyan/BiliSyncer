@@ -5,6 +5,7 @@ CSV文件管理模块
 
 import csv
 import glob
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -182,14 +183,15 @@ class CSVManager:
     @staticmethod
     def parse_folder_size_value(size_value: str) -> int:
         """将带单位的大小字符串还原为字节"""
-        if not size_value:
+        if size_value is None:
             return 0
-        text = size_value.strip().upper().replace('字节', 'B')
-        try:
-            # 纯数字
-            return int(float(text))
-        except ValueError:
-            pass
+        # 统一格式，移除空格和千位分隔符，兼容“字节”中文单位
+        normalized = str(size_value).strip().upper().replace('字节', 'B')
+        normalized = normalized.replace(',', '')
+        normalized = re.sub(r'\s+', '', normalized)
+        if not normalized:
+            return 0
+        
         units = {
             'B': 1,
             'KB': 1024,
@@ -197,14 +199,33 @@ class CSVManager:
             'GB': 1024 ** 3,
             'TB': 1024 ** 4,
         }
-        for unit, factor in units.items():
-            if text.endswith(unit):
-                try:
-                    number_part = text[:-len(unit)].strip()
-                    return int(float(number_part) * factor)
-                except ValueError:
-                    return 0
-        return 0
+        # 处理单字母后缀（如历史数据中的"1.2G"）
+        alias_map = {
+            'K': 'KB',
+            'M': 'MB',
+            'G': 'GB',
+            'T': 'TB',
+        }
+        for alias, full_unit in alias_map.items():
+            if normalized.endswith(alias) and not normalized.endswith(full_unit):
+                normalized = normalized[:-len(alias)] + full_unit
+                break
+        
+        match = re.match(r'^([0-9]+(?:\.[0-9]+)?)(B|KB|MB|GB|TB)?$', normalized)
+        if match:
+            number_part = match.group(1)
+            unit = match.group(2) or 'B'
+            try:
+                value = float(number_part) * units[unit]
+                return int(value)
+            except (KeyError, ValueError):
+                return 0
+        
+        # 尽量解析任何纯数字形式
+        try:
+            return int(float(normalized))
+        except ValueError:
+            return 0
     
     def _normalize_csv_row_for_write(self, row: Dict[str, str]) -> Dict[str, str]:
         """确保写入CSV的数据格式统一"""
@@ -567,13 +588,29 @@ class CSVManager:
                     row.setdefault('is_multi_part', 'False')
                     row.setdefault('total_parts', '1')
                     row.setdefault('status', 'normal')
-                    row.setdefault('folder_size', '0')
+                    # 保留原有的folder_size值，不要用setdefault覆盖
+                    if 'folder_size' not in row or not row['folder_size']:
+                        row['folder_size'] = '0'
+                    
+                    # 先保存原有的folder_size值（如果存在且有效）
+                    existing_folder_size = row.get('folder_size', '0')
+                    existing_size_bytes = self.parse_folder_size_value(existing_folder_size)
+                    
                     normalized_row = self._normalize_csv_row_for_write(row)
                     
                     if normalized_row['video_url'] == video_url:
                         normalized_row['downloaded'] = 'True'
                         if folder_size is not None:
+                            # 更新当前视频的folder_size
                             normalized_row['folder_size'] = self._format_folder_size_value(folder_size)
+                        elif existing_size_bytes > 0:
+                            # 如果当前视频没有新的folder_size，但已有值，保留原有值
+                            normalized_row['folder_size'] = self._format_folder_size_value(existing_size_bytes)
+                    else:
+                        # 对于其他视频，保留原有的folder_size值
+                        if existing_size_bytes > 0:
+                            normalized_row['folder_size'] = self._format_folder_size_value(existing_size_bytes)
+                    
                     videos.append(normalized_row)
             
             # 生成新的CSV文件名
