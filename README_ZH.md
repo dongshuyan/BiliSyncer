@@ -174,7 +174,7 @@ python3 tools/dir_tree_size.py "/要分析的目录路径" --no-check
 
 **示例输出**：
 ```
-/Volumes/Data-12T-mybook/多媒体资料/视频/Bilibili/ (1.23 TB)
+/path/to/Bilibili/ (1.23 TB)
 ├── 番剧-33415-名侦探柯南（中配） (50.2 GB)
 │   ├── BV1xx411c7mD-第1集 (500 MB)
 │   └── BV1xx411c7mE-第2集 (480 MB)
